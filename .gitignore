@@ -6,11 +6,16 @@ node_modules/
 out/
 build/
 dist/
+*.tsbuildinfo
+next-env.d.ts
 
 # environment variables
 .env
 .env.local
 .env.*.local
+
+# temporary local store (MVP pre-DB)
+.tmp/
 
 # logs
 npm-debug.log*
