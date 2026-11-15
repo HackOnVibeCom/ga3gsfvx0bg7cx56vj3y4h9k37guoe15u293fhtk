@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { Header } from "@/components/Header";
 import { HeroGlobe } from "@/components/HeroGlobe";
 import { HowItWorksSection } from "@/components/HowItWorksSection";
 import { CreateForm } from "@/components/CreateForm";
@@ -6,20 +8,16 @@ import { CreateForm } from "@/components/CreateForm";
 export default function HomePage() {
   return (
     <div className="w-full overflow-x-clip">
+      <div className="relative z-20">
+        <Header showNewButton />
+      </div>
+
       <main className="w-full">
         {/* Full-viewport Hero so section #mediate stays cleanly below the fold on mobile & desktop */}
-        <section className="relative min-h-[100dvh] w-full flex items-center justify-center px-4 sm:px-6 py-12 overflow-hidden">
+        <section className="relative min-h-[calc(100dvh-64px)] w-full flex items-center justify-center px-4 sm:px-6 py-12 overflow-hidden">
           <HeroGlobe />
 
           <div className="relative z-10 max-w-4xl mx-auto text-center space-y-6">
-            <div className="flex justify-center">
-              <img
-                src="/logo-full.png"
-                alt="MidPoint"
-                className="h-9 sm:h-11 w-auto object-contain select-none"
-              />
-            </div>
-
             <h1 className="text-4xl sm:text-6xl lg:text-[72px] font-extrabold tracking-[-0.03em] leading-[1.03] text-[#F1F1F1] text-balance">
               Settle the deal{" "}
               <em className="hero-gradient-text block sm:inline">
@@ -31,7 +29,7 @@ export default function HomePage() {
               Submit your freelance projects blindly. Fair midpoint, zero anchoring.
             </p>
 
-            <div className="pt-2 flex justify-center">
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
               <a
                 href="#mediate"
                 className="btn-dsq-primary inline-flex items-center gap-2 px-7 py-3.5 text-sm sm:text-base"
@@ -39,6 +37,12 @@ export default function HomePage() {
                 <span>Start blind mediation</span>
                 <ArrowRight className="w-4 h-4" />
               </a>
+              <Link
+                href="/pricing"
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] hover:bg-white/[0.09] px-6 py-3.5 text-sm sm:text-base font-semibold text-white transition-all"
+              >
+                <span>View pricing</span>
+              </Link>
             </div>
           </div>
         </section>
