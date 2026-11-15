@@ -1,5 +1,5 @@
-import { CURRENCIES, type CurrencyCode } from "./currency";
-import type { DealPosition, PartyRole } from "./midpoint";
+import { CURRENCIES, type CurrencyCode } from "./currency.ts";
+import type { DealPosition, PartyRole } from "./midpoint.ts";
 
 export function parseCurrency(raw: unknown): CurrencyCode {
   if (typeof raw === "string") {

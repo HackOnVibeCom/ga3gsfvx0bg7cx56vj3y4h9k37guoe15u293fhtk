@@ -13,8 +13,16 @@ import {
   computeContractualTermAdjustment,
   formatCurrency,
   formatMoney,
+  type DealPosition,
   type PartyTerms,
 } from "./midpoint.ts";
+import { parseDealPositionPayload, parseCurrency, parseRole } from "./validation.ts";
+import {
+  checkRateLimit,
+  deriveDraftAccessToken,
+  toPublicView,
+  type NegotiationRecord,
+} from "./store.ts";
 
 describe("computeZOPA (Gate-and-Clamp Public-Quote Split & Private Reservation Gate)", () => {
   it("computes public-quote k=0.5 baseline, clamps extreme bluffs, and prevents interior limit leakage", () => {
@@ -375,5 +383,167 @@ describe("Smoke Suite: Economics, Client Feasibility & Exact-Match Edge Cases", 
     const bridge = computeBridgeOptions(dev, client, 100, 50, 7, 2, 0, "USD");
     assert.equal(bridge.publicGap, 0);
     assert.equal(bridge.recommendedBudget, 7500);
+  });
+});
+
+describe("E2E Store Privacy Redaction, HMAC Capability Token, Rate Limiting & Validation", () => {
+  const sampleDevPos: DealPosition = {
+    budget: 8000,
+    reservation: 6500,
+    hours: 120,
+    depositPct: 50,
+    netDays: 7,
+    revisions: 2,
+    platformFeePct: 5,
+    targetHourlyRate: 60,
+    flags: ["Strict deadline"],
+    reason: "Full-stack Next.js SaaS build",
+  };
+
+  const sampleClientPos: DealPosition = {
+    budget: 6800,
+    reservation: 7800,
+    hours: 110,
+    depositPct: 50,
+    netDays: 14,
+    revisions: 2,
+    platformFeePct: 5,
+    maxBudgetCeiling: 7800,
+    flags: [],
+    reason: "Q3 launch target",
+  };
+
+  it("enforces pre-reveal blindness: Party B never sees Party A numbers while waiting", () => {
+    const waitingRecord: NegotiationRecord = {
+      id: "sess_test_01",
+      ownerToken: "secret_owner_token_123456",
+      createdAt: new Date().toISOString(),
+      projectTitle: "E-Commerce Checkout Revamp",
+      currency: "USD",
+      creatorRole: "developer",
+      positionA: sampleDevPos,
+      positionB: null,
+      hasZopa: null,
+      settlement: null,
+      zopaLow: null,
+      zopaHigh: null,
+      summary: null,
+      rationale: null,
+      draftMessage: null,
+    };
+
+    const ownerView = toPublicView(waitingRecord, "secret_owner_token_123456");
+    assert.equal(ownerView.status, "waiting");
+    assert.equal(ownerView.viewerSide, "A");
+    if (ownerView.status === "waiting" && ownerView.viewerSide === "A") {
+      assert.equal(ownerView.positionA.budget, 8000);
+      assert.equal(ownerView.positionA.reservation, 6500);
+    }
+
+    const responderView = toPublicView(waitingRecord, null);
+    assert.equal(responderView.status, "waiting");
+    assert.equal(responderView.viewerSide, "B");
+    assert.equal("positionA" in responderView, false);
+  });
+
+  it("enforces post-reveal walk-away redaction and issues HMAC draftToken only to participants", () => {
+    const { summary, zopa } = computeFreelanceMediationWithBounds(
+      sampleDevPos,
+      sampleClientPos,
+      "USD"
+    );
+
+    const revealedRecord: NegotiationRecord = {
+      id: "sess_test_02",
+      ownerToken: "secret_owner_token_abcdef",
+      createdAt: new Date().toISOString(),
+      projectTitle: "E-Commerce Checkout Revamp",
+      currency: "USD",
+      creatorRole: "developer",
+      positionA: sampleDevPos,
+      positionB: sampleClientPos,
+      hasZopa: summary.hasZopa,
+      settlement: summary.settlement,
+      zopaLow: zopa.zopaLow,
+      zopaHigh: zopa.zopaHigh,
+      summary,
+      rationale: "Both parties aligned around $7,400.",
+      draftMessage: "Hi, let us lock in $7,400 for 115 hours.",
+    };
+
+    const creatorView = toPublicView(revealedRecord, "secret_owner_token_abcdef");
+    assert.equal(creatorView.status, "revealed");
+    if (creatorView.status === "revealed") {
+      assert.equal(creatorView.viewerSide, "A");
+      assert.equal("reservation" in creatorView.developer, false);
+      assert.equal("reservation" in creatorView.client, false);
+      assert.equal("targetHourlyRate" in creatorView.developer, false);
+      assert.equal("maxBudgetCeiling" in creatorView.client, false);
+      assert.equal(typeof creatorView.draftToken, "string");
+      assert.equal(typeof creatorView.summary.developerEconomics.targetDeltaPct, "number");
+    }
+
+    const responderCapToken = deriveDraftAccessToken(
+      revealedRecord.id,
+      revealedRecord.ownerToken
+    );
+    const clientView = toPublicView(revealedRecord, responderCapToken);
+    if (clientView.status === "revealed") {
+      assert.equal(clientView.viewerSide, "B");
+      assert.equal(clientView.viewerRole, "client");
+      // Developer's private targetDeltaPct is redacted for Client viewer
+      assert.equal(clientView.summary.developerEconomics.targetDeltaPct, null);
+      assert.equal(clientView.draftToken, responderCapToken);
+    }
+
+    const spectatorView = toPublicView(revealedRecord, "wrong_token");
+    if (spectatorView.status === "revealed") {
+      assert.equal(spectatorView.viewerSide, "spectator");
+      assert.equal(spectatorView.draftToken, undefined);
+      assert.equal(spectatorView.summary.developerEconomics.targetDeltaPct, null);
+    }
+  });
+
+  it("enforces payload validation guardrails and sliding-window rate limits", () => {
+    assert.equal(parseCurrency("idr"), "IDR");
+    assert.equal(parseCurrency("INVALID"), "USD");
+    assert.equal(parseRole("developer"), "developer");
+    assert.equal(parseRole("hacker"), null);
+
+    // Developer minimum cannot exceed quote
+    const invalidDev = parseDealPositionPayload(
+      {
+        budget: 5000,
+        reservation: 6000,
+        hours: 80,
+        depositPct: 50,
+        netDays: 7,
+        revisions: 2,
+        platformFeePct: 0,
+      },
+      "developer"
+    );
+    assert.equal(invalidDev.ok, false);
+
+    // Client maximum ceiling cannot be below offer
+    const invalidClient = parseDealPositionPayload(
+      {
+        budget: 6000,
+        reservation: 5000,
+        hours: 80,
+        depositPct: 50,
+        netDays: 7,
+        revisions: 2,
+        platformFeePct: 0,
+      },
+      "client"
+    );
+    assert.equal(invalidClient.ok, false);
+
+    // Sliding-window rate limit blocks requests exceeding quota
+    const testKey = `test_rate_key_${Date.now()}`;
+    assert.equal(checkRateLimit(testKey, 2, 60_000), true);
+    assert.equal(checkRateLimit(testKey, 2, 60_000), true);
+    assert.equal(checkRateLimit(testKey, 2, 60_000), false);
   });
 });

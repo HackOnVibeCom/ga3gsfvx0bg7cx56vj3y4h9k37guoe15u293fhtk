@@ -1,18 +1,18 @@
 import {
-  CurrencyCode,
-  DealPosition,
-  FreelanceMediationSummary,
-  PartyRole,
-  PartyTerms,
-  PublicDealPosition,
+  type CurrencyCode,
+  type DealPosition,
+  type FreelanceMediationSummary,
+  type PartyRole,
+  type PartyTerms,
+  type PublicDealPosition,
   formatMoney,
-} from "./midpoint";
+} from "./midpoint.ts";
 import {
-  MediationCopyResult,
+  type MediationCopyResult,
   buildFallbackMediationCopy,
   isLegacyMediationRationale,
   stripLongDashes,
-} from "./mediation-copy";
+} from "./mediation-copy.ts";
 
 export {
   buildFallbackMediationCopy,

@@ -3,26 +3,26 @@ import fs from "node:fs";
 import path from "node:path";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { getDb } from "@/db";
-import { negotiations, type NegotiationRow } from "@/db/schema";
-import type { CurrencyCode } from "./currency";
+import { getDb } from "../db/index.ts";
+import { negotiations, type NegotiationRow } from "../db/schema.ts";
+import type { CurrencyCode } from "./currency.ts";
 import {
   generateMediationCopy,
   generatePolishedDraftCopy,
   stripPrivateFields,
-} from "./llm";
+} from "./llm.ts";
 import {
   buildFallbackMediationCopy,
   isLegacyMediationRationale,
   stripLongDashes,
-} from "./mediation-copy";
+} from "./mediation-copy.ts";
 import {
   computeFreelanceMediationWithBounds,
   type DealPosition,
   type FreelanceMediationSummary,
   type PartyRole,
   type PublicDealPosition,
-} from "./midpoint";
+} from "./midpoint.ts";
 
 export interface NegotiationRecord {
   id: string;

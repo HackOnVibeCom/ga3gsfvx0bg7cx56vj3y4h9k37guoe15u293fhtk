@@ -18,7 +18,14 @@ const victorMono = Victor_Mono({
   display: "swap",
 });
 
+const siteOrigin = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteOrigin),
   title: "MidPoint — Blind AI Deal Mediator for Freelance Developers",
   description:
     "Developer and Client submit project budget, scope hours, deposit, payment terms, and revisions blindly. MidPoint computes the fair middle ground and writes your SOW draft.",

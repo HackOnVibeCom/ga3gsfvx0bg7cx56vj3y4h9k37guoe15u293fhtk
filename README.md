@@ -143,12 +143,14 @@ Depending on overlap status and the composite Payment Risk Score (`0 - 100`), Mi
 
 ## 5. Privacy and Security Architecture
 
-MidPoint enforces strict server-side data isolation in `src/lib/store.ts` and `src/lib/llm.ts`:
+MidPoint enforces strict server-side data isolation in `src/lib/store.ts`, `src/lib/llm.ts`, and `src/lib/validation.ts`:
 
 - **Pre-Reveal Blind Guarantee:** While a session is in `waiting` status, `GET /api/negotiations/[id]` for Party B strips `positionA` completely. Only `projectTitle`, `currency`, `creatorRole`, and `platformFeeHint` are returned.
 - **Post-Reveal Walk-Away Redaction:** Even after both parties submit (`revealed` status), `stripPrivateFields` removes `reservation`, `targetHourlyRate`, and `maxBudgetCeiling` before serializing the response. Furthermore, `sanitizeSummaryForViewer` redacts `targetDeltaPct` for non-developer viewers.
 - **LLM Privacy Guardrails:** Prompts sent to DeepSeek (`src/lib/llm.ts`) undergo post-generation validation (`leaksReservationNumber`, `containsForbiddenJargon`, `containsPlaceholderLeak`) to ensure neither private reservation numbers nor raw template placeholders ever appear in generated copy.
-- **HMAC Capability Token and Rate Limiting:** AI SOW draft regeneration (`POST /api/negotiations/[id]/draft`) requires a per-session HMAC-SHA256 capability token (`deriveDraftAccessToken`) issued only to verified session participants, backed by per-session sliding-window rate limiting (`6 requests/minute`).
+- **HMAC Capability Token and Multi-Endpoint Rate Limiting:**
+  - AI SOW draft regeneration (`POST /api/negotiations/[id]/draft`) requires a per-session HMAC-SHA256 capability token (`deriveDraftAccessToken` signed with `DRAFT_TOKEN_SECRET`) issued only to verified session participants, backed by per-session sliding-window rate limiting (`6 requests/minute`).
+  - Session creation (`POST /api/negotiations`) and counterparty submission (`POST /api/negotiations/[id]/respond`) enforce IP-based sliding-window rate limits (`20 requests/minute/IP` and `15 requests/minute/IP` respectively) to prevent automated abuse and protect LLM quota.
 
 [Back to Quick Navigation](#quick-navigation)
 
@@ -156,14 +158,14 @@ MidPoint enforces strict server-side data isolation in `src/lib/store.ts` and `s
 
 ## 6. Business Model and Monetization Strategy
 
-MidPoint combines a **Zero-CAC viral acquisition engine** with high-margin B2B/FinTech monetization layers:
+MidPoint combines a **Zero-CAC viral acquisition engine** with high-margin B2B/FinTech monetization layers, presented transparently in the live in-app [`/pricing`](src/app/pricing/page.tsx) page and 10-row `OVERVIEW` comparison matrix:
 
 | Tier / Stream | Target User | Offering | Pricing Model |
 | :--- | :--- | :--- | :--- |
-| **1. Core Blind Mediation (Free Forever)** | Individual Freelancers & Clients | Unlimited double-blind sessions, 5-parameter mediation, dynamic risk scoring, SOW draft, and watermarked PDF export | **$0** (Viral Zero-CAC acquisition funnel) |
-| **2. MidPoint Pro Workspace** | Full-Time Freelancers, Studios & Agencies | Multi-round blind re-mediation when deals have no overlap, custom branding on PDF SOW exports, reusable clause templates, and deal history analytics | **$19 / month** per seat |
-| **3. Embedded Escrow & Milestone Payouts** | Settled Mediated Deals (`hasZopa = true`) | One-click milestone escrow funding directly from the settled verdict card (powered by Stripe Connect / Wise integration) | **1.5% settlement take-rate** (vs. 10%-20% on traditional marketplaces) |
-| **4. B2B API & White-Label Widget** | Freelance Marketplaces, Dev Shops & Procurement Teams | Embeddable `"Settle with MidPoint"` blind mediation modal and REST API | **Usage-based SaaS ($99 - $499 / month)** |
+| **1. Core Blind Mediation (Free Forever)** | Individual Freelancers & Clients | Unlimited double-blind sessions, 5-parameter mediation, dynamic risk scoring, SOW draft, and watermarked PDF export | **$0 / month** (Viral Zero-CAC acquisition funnel) |
+| **2. MidPoint Pro Workspace** | Full-Time Freelancers, Studios & Agencies | Up to 3 blind re-mediation rounds on No-Overlap deals, custom branding on PDF SOW exports (no watermark), reusable clause templates, and 10 team seats | **$19 / month** (Early Access, $29 anchor) |
+| **3. Unlimited & API (B2B)** | Freelance Marketplaces, Dev Shops & Procurement Teams | Unlimited re-mediation rounds, unlimited seats, embeddable `"Settle with MidPoint"` widget, and REST API | **$99 / month** (B2B Beta, $149 anchor) |
+| **4. Embedded Milestone Escrow** | Settled Mediated Deals (`hasZopa = true`) | Optional milestone escrow funding directly from the settled verdict card | **0.5% - 1.5% flat settlement fee** (vs. 10%-20% on traditional marketplaces) |
 
 ### Why Investors Back This Model
 - **Zero-CAC Acquisition:** Traditional freelance platforms spend heavily on paid ads to acquire both sides of the marketplace. MidPoint acquires counterparties organically at **$0 CAC** whenever one party sends a mediation link.
@@ -175,12 +177,13 @@ MidPoint combines a **Zero-CAC viral acquisition engine** with high-margin B2B/F
 
 ## 7. System Architecture and Tech Stack
 
-- **Frontend & Full-Stack Framework:** Next.js 15.3 (App Router, React 19, TypeScript, Server Components + Client Interactive Workbench)
-- **Styling & Visual System:** Tailwind CSS + custom glassmorphic dark UI (`src/app/globals.css`) + interactive 60fps HTML5 Canvas particle and 3D globe visualizers (`BackgroundCanvas.tsx`, `HeroGlobe.tsx`)
+- **Frontend & Full-Stack Framework:** Next.js 15.5 (App Router, React 19, TypeScript, Server Components + Client Interactive Workbench)
+- **Styling & Visual System:** Tailwind CSS + custom glassmorphic dark UI (`src/app/globals.css`) + interactive 60fps HTML5 Canvas particle and 3D globe visualizers (`BackgroundCanvas.tsx`, `HeroGlobe.tsx`) + sticky scroll-driven 3-step showcase with live miniature website skeletons (`HowItWorksSection.tsx`)
 - **Database & Persistence:** Neon Serverless PostgreSQL + Drizzle ORM (`src/db/schema.ts`, `src/db/index.ts`) with automatic local JSON fallback (`.tmp/negotiations.json`) for zero-config local evaluation
 - **AI Mediation & SOW Engine:** DeepSeek API (`deepseek-flash` with low-latency reasoning configuration in `src/lib/llm.ts`) + deterministic fallback copy generator (`src/lib/mediation-copy.ts`)
 - **Client-Side PDF Generation:** Custom vector PDF layout engine built on `jsPDF` (`src/lib/export-pdf.ts`) with embedded Plus Jakarta Sans and Victor Mono typography
 - **Multi-Currency Support:** 32 global currencies (`USD`, `EUR`, `GBP`, `IDR`, `SGD`, `JPY`, `AUD`, `CAD`, etc.) with locale-aware formatting and step rounding (`src/lib/currency.ts`)
+- **Continuous Integration:** Automated GitHub Actions workflow (`.github/workflows/test.yml`) running strict TypeScript checks (`npx tsc --noEmit`) and unit/privacy smoke suites (`npm test`) on every push and pull request
 
 [Back to Quick Navigation](#quick-navigation)
 
@@ -206,19 +209,32 @@ cp .env.example .env.local
 ```
 - `DATABASE_URL` / `DATABASE_URL_POOLED`: Neon PostgreSQL connection string. If omitted locally, MidPoint automatically persists sessions to `.tmp/negotiations.json`.
 - `DEEPSEEK_API_KEY`: Server-side API key for `deepseek-flash` AI rationale and SOW drafting. If omitted, MidPoint gracefully falls back to its deterministic mediation copy engine (`src/lib/mediation-copy.ts`) with zero runtime errors.
+- `DRAFT_TOKEN_SECRET`: Dedicated HMAC-SHA256 secret used to sign per-session draft regeneration tokens.
 
 ### 3. Run the Development Server
 ```bash
 npm run dev
 ```
-Open `http://localhost:3000` in your browser.
+Open `http://localhost:3000` (Landing & Workbench) or `http://localhost:3000/pricing` (Pricing & Overview Matrix) in your browser.
 
-### 4. How Judges Can Test the Full Flow in 60 Seconds
-1. Open the live URL (or `http://localhost:3000`) and click **Start blind mediation**.
+### 4. Production Deployment on Vercel
+1. Import the repository into **Vercel** (Framework Preset: **Next.js**).
+2. Add the environment variables in Vercel Project Settings:
+   - `DATABASE_URL` and `DATABASE_URL_POOLED` (Neon PostgreSQL)
+   - `DEEPSEEK_API_KEY` (DeepSeek API)
+   - `DRAFT_TOKEN_SECRET` (random 32+ character secret string)
+3. Push the Drizzle PostgreSQL schema to Neon:
+   ```bash
+   npm run db:push
+   ```
+4. Deploy. All SSR routes (`/`, `/pricing`, `/r/[id]`) and API endpoints (`/api/negotiations/...`) are ready immediately.
+
+### 5. How Judges Can Test the Full Flow in 60 Seconds
+1. Open the live URL (or `http://localhost:3000`) and scroll through the **How it works** 3-step showcase or click **Start blind mediation**.
 2. Click one of the quick-load scenario pills (for example, **SaaS MVP Build** or **Landing Page Redesign**) or enter custom values, then click **Lock Developer Terms & Get Share Link**.
 3. Copy the generated counterparty share link (`/r/[id]`) and open it in a new browser tab.
 4. Select a counterparty preset or enter Client values and click **Submit Client Terms & Reveal MidPoint**.
-5. Inspect the mediated settlement, risk breakdown, 4-state action plan, AI SOW draft, and click **Download PDF**.
+5. Inspect the mediated settlement, risk breakdown, 4-state action plan, click **Accept Mediated Deal & Copy SOW**, test **Download PDF**, and visit `/pricing` to review the 3-tier business model.
 
 [Back to Quick Navigation](#quick-navigation)
 
@@ -226,10 +242,10 @@ Open `http://localhost:3000` in your browser.
 
 ## 9. Running Tests and Verification
 
-MidPoint includes unit and mechanism verification tests covering ZOPA computation, zero-leakage privacy proofs, multi-attribute contractual adjustments, 4-state action plans, IDR/multi-currency formatting, and payment risk scoring.
+MidPoint includes automated unit, mechanism verification, and E2E store privacy tests covering ZOPA computation, zero-leakage privacy proofs, multi-attribute contractual adjustments, 4-state action plans, IDR/multi-currency formatting, pre/post-reveal walk-away redaction, HMAC capability tokens, sliding-window rate limiting, and payload validation.
 
 ```bash
-# Run the test suite (20 unit and smoke tests across 7 suites)
+# Run the test suite (23 unit, privacy, and E2E store tests across 8 suites)
 npm test
 
 # Run strict TypeScript type-checking
@@ -247,33 +263,41 @@ npm run build
 
 ```text
 .
-|-- .env.example                 # Environment variable template (Neon DB + DeepSeek API)
+|-- .env.example                 # Environment variable template (Neon DB, DeepSeek, HMAC secret)
+|-- .github/workflows/test.yml   # GitHub Actions CI pipeline (tsc + node test runner)
 |-- drizzle.config.ts            # Drizzle Kit configuration for PostgreSQL migrations
 |-- package.json                 # Scripts and dependencies
-|-- public/                      # Brand assets and embedded TTF fonts for PDF export
+|-- public/
+|   |-- fonts/                   # Embedded TTF fonts for vector PDF export
+|   `-- images/how-it-works/     # Studio portrait assets (tahap-1.png - tahap-3.png)
 |-- src/
 |   |-- app/
 |   |   |-- api/negotiations/    # REST endpoints: create, fetch, respond, and AI draft
+|   |   |-- pricing/page.tsx     # Dedicated 3-tier SaaS pricing & overview comparison page
 |   |   |-- r/[id]/page.tsx      # Dynamic session page + OpenGraph metadata generator
 |   |   |-- globals.css          # Design system tokens and utility classes
 |   |   |-- layout.tsx           # Root layout, fonts, and background canvas
-|   |   `-- page.tsx             # Landing hero and DealWorkbench entry
+|   |   `-- page.tsx             # Landing hero, How it works showcase, and DealWorkbench entry
 |   |-- components/
-|   |   |-- DealWorkbench.tsx    # Interactive 5-term negotiation input workbench
+|   |   |-- Header.tsx           # Global navigation header (How it works, Workbench, Pricing)
+|   |   |-- Footer.tsx           # Global footer with quick navigation links
+|   |   |-- HowItWorksSection.tsx# Sticky 3-step showcase with live website skeleton cards
+|   |   |-- PricingView.tsx      # 3-tier pricing cards, 10-row OVERVIEW matrix & Coming Soon modal
+|   |   |-- DealWorkbench.tsx    # Interactive 5-term negotiation workbench with progressive disclosure
 |   |   |-- LiveDealAside.tsx    # Real-time effective hourly rate & risk meter
 |   |   |-- WaitingPanel.tsx     # Party A waiting room with live polling & share link
 |   |   |-- PositionForm.tsx     # Party B blind response wrapper
-|   |   `-- ResultPanel.tsx      # Mediated verdict, visualizer, SOW draft, and PDF export
+|   |   `-- ResultPanel.tsx      # Mediated verdict, 2-layer No-Overlap card, SOW draft & PDF export
 |   |-- db/
 |   |   |-- index.ts             # Neon serverless database client
 |   |   `-- schema.ts            # Drizzle ORM negotiations table schema
 |   `-- lib/
 |       |-- midpoint.ts          # Core mediation engine, ZOPA gate, risk & action plan
-|       |-- midpoint.test.ts     # Automated unit and privacy verification test suite
+|       |-- midpoint.test.ts     # 23 automated unit, privacy & E2E store verification tests
 |       |-- llm.ts               # DeepSeek Flash integration + privacy/jargon guards
 |       |-- mediation-copy.ts    # Deterministic fallback rationale & SOW generator
 |       |-- export-pdf.ts        # Client-side vector PDF generator (jsPDF)
-|       |-- store.ts             # Dual-mode persistence (Neon DB + local fallback)
+|       |-- store.ts             # Dual-mode persistence, HMAC capability tokens & rate limiters
 |       |-- currency.ts          # 32-currency configuration and money formatters
 |       |-- presets.ts           # Role-aware realistic freelance scenario presets
 |       `-- validation.ts        # Strict server-side payload validation

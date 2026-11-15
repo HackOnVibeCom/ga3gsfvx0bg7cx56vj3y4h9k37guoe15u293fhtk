@@ -1,9 +1,9 @@
 import {
-  CurrencyCode,
-  FreelanceMediationSummary,
-  PartyTerms,
+  type CurrencyCode,
+  type FreelanceMediationSummary,
+  type PartyTerms,
   formatMoney,
-} from "./midpoint";
+} from "./midpoint.ts";
 
 export interface MediationCopyResult {
   rationale: string;
