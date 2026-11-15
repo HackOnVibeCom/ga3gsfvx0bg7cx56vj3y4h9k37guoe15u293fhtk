@@ -10,7 +10,7 @@ export async function GET(
   const token =
     url.searchParams.get("t") ?? request.headers.get("x-owner-token");
 
-  const record = getNegotiationRecord(id);
+  const record = await getNegotiationRecord(id);
   if (!record) {
     return NextResponse.json(
       { error: "Mediation session not found." },

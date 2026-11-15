@@ -19,7 +19,7 @@ export default async function SessionPage({
   const { t } = await searchParams;
   const token = typeof t === "string" ? t : undefined;
 
-  const record = getNegotiationRecord(id);
+  const record = await getNegotiationRecord(id);
 
   if (!record) {
     return (

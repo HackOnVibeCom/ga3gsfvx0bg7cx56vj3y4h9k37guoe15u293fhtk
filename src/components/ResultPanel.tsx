@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronDown, Download } from "lucide-react";
+import { Check, ChevronDown, Download, Loader2, Sparkles } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import {
   buildFallbackMediationCopy,
   isLegacyMediationRationale,
+  stripLongDashes,
 } from "@/lib/mediation-copy";
 import type { ConfidenceTier, PartyRole } from "@/lib/midpoint";
 import type { PublicNegotiationView } from "@/lib/store";
@@ -50,6 +51,16 @@ const CONFIDENCE_THEME: Record<
   },
   wide: {
     label: "WIDE GAP",
+    badgeClass: "border-[#FF006D]/40 bg-[#FF006D]/15 text-[#FF006D]",
+    accentColor: "#FF006D",
+    cardBackground:
+      "linear-gradient(135deg, #2E0C20, #141226, #101219)",
+    ambientGlow:
+      "radial-gradient(circle at 18% 15%, rgba(255, 0, 109, 0.3) 0%, rgba(86, 97, 255, 0.12) 48%, transparent 78%)",
+    dotShadow: "0 0 14px rgba(255, 0, 109, 0.85)",
+  },
+  no_overlap: {
+    label: "NO OVERLAP",
     badgeClass: "border-[#FF006D]/40 bg-[#FF006D]/15 text-[#FF006D]",
     accentColor: "#FF006D",
     cardBackground:
@@ -104,12 +115,41 @@ function DisclosureAccordion({
 }
 
 export function ResultPanel({ data }: ResultPanelProps) {
+  const { developer, client, summary, currency, projectTitle, viewerRole } = data;
+  const hasLegacyCopy = isLegacyMediationRationale(data.rationale);
+  const cleanCopy = hasLegacyCopy
+    ? buildFallbackMediationCopy({
+        projectTitle,
+        currency,
+        developer,
+        client,
+        summary,
+      })
+    : null;
+  const verdictText = stripLongDashes(
+    cleanCopy ? cleanCopy.rationale : data.rationale
+  );
+  const initialDraftText = stripLongDashes(
+    cleanCopy ? cleanCopy.draftMessage : data.draftMessage
+  );
+
   const [notesOpen, setNotesOpen] = useState(false);
   const [mathOpen, setMathOpen] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
   const [storedRole, setStoredRole] = useState<PartyRole | null>(null);
+  const [storedDraftToken, setStoredDraftToken] = useState<string | null>(
+    data.draftToken ?? null
+  );
+  const [draftText, setDraftText] = useState(initialDraftText);
+  const [draftingAi, setDraftingAi] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftGeneratedOnce, setDraftGeneratedOnce] = useState(false);
+
+  const activeViewerRole: PartyRole | null = viewerRole ?? storedRole;
+  const canGenerateAiDraft = Boolean(storedDraftToken || activeViewerRole);
+  const shareUrl = origin ? `${origin}/r/${data.id}` : `/r/${data.id}`;
 
   async function handleDownloadPdf() {
     if (exportingPdf) return;
@@ -117,7 +157,14 @@ export function ResultPanel({ data }: ResultPanelProps) {
     setPdfError(null);
     try {
       const { downloadMediationPdf } = await import("@/lib/export-pdf");
-      await downloadMediationPdf(data, shareUrl);
+      await downloadMediationPdf(
+        {
+          ...data,
+          rationale: verdictText,
+          draftMessage: draftText,
+        },
+        shareUrl
+      );
     } catch {
       setPdfError("Failed to generate PDF. Please try again.");
     } finally {
@@ -125,9 +172,68 @@ export function ResultPanel({ data }: ResultPanelProps) {
     }
   }
 
+  async function handleGenerateAiDraft() {
+    if (draftingAi) return;
+    setDraftingAi(true);
+    setDraftError(null);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const token =
+        params.get("t") ||
+        storedDraftToken ||
+        window.localStorage.getItem(`midpoint_draft_token_${data.id}`);
+      const res = await fetch(`/api/negotiations/${data.id}/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          viewerRole: activeViewerRole,
+          token,
+        }),
+      });
+      const payload = (await res.json()) as {
+        draftMessage?: string;
+        error?: string;
+      };
+      if (!res.ok || !payload.draftMessage) {
+        setDraftError(
+          payload.error ?? "Failed to generate draft. Please try again."
+        );
+        return;
+      }
+      setDraftText(stripLongDashes(payload.draftMessage));
+      setDraftGeneratedOnce(true);
+    } catch {
+      setDraftError("Network error while drafting message. Please try again.");
+    } finally {
+      setDraftingAi(false);
+    }
+  }
+
+  useEffect(() => {
+    setDraftText(initialDraftText);
+  }, [data.id, initialDraftText]);
+
   useEffect(() => {
     setOrigin(window.location.origin);
     try {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get("t");
+      const tokenToPersist = urlToken || data.draftToken;
+      if (tokenToPersist) {
+        window.localStorage.setItem(
+          `midpoint_draft_token_${data.id}`,
+          tokenToPersist
+        );
+        setStoredDraftToken(tokenToPersist);
+      } else {
+        const savedToken = window.localStorage.getItem(
+          `midpoint_draft_token_${data.id}`
+        );
+        if (savedToken) {
+          setStoredDraftToken(savedToken);
+        }
+      }
+
       if (data.viewerRole) {
         window.localStorage.setItem(`midpoint_role_${data.id}`, data.viewerRole);
       } else {
@@ -139,39 +245,56 @@ export function ResultPanel({ data }: ResultPanelProps) {
     } catch {
       // Ignore storage errors
     }
-  }, [data.id, data.viewerRole]);
+  }, [data.id, data.viewerRole, data.draftToken]);
 
-  const { developer, client, summary, currency, projectTitle, viewerRole } = data;
-  const activeViewerRole: PartyRole | null = viewerRole ?? storedRole;
-  const hasLegacyCopy = isLegacyMediationRationale(data.rationale);
-  const cleanCopy = hasLegacyCopy
-    ? buildFallbackMediationCopy({
-        projectTitle,
-        currency,
-        developer,
-        client,
-        summary,
-      })
-    : null;
-  const verdictText = cleanCopy ? cleanCopy.rationale : data.rationale;
-  const sowDraftText = cleanCopy ? cleanCopy.draftMessage : data.draftMessage;
+  const confidenceKey: ConfidenceTier =
+    summary.confidence ?? summary.budget.confidence ?? "moderate";
+  const theme = CONFIDENCE_THEME[confidenceKey];
+  const settledBudget = summary.budget.midpoint;
+  const mediatedEcon = summary.mediatedEconomics;
+  const hasOverlap =
+    summary.hasZopa && settledBudget !== null && mediatedEcon !== null;
 
-  const theme = CONFIDENCE_THEME[summary.budget.confidence];
+  const publicGap =
+    summary.bridgeOptions?.publicGap ??
+    Math.round(Math.abs(developer.budget - client.budget));
+  const recommendedBudget =
+    summary.bridgeOptions?.recommendedBudget ??
+    Math.round((developer.budget + client.budget) / 2);
+  const recommendedHours =
+    summary.bridgeOptions?.recommendedHours ??
+    Math.max(
+      1,
+      Math.round(
+        client.budget /
+          Math.max(1, developer.budget / Math.max(1, developer.hours))
+      )
+    );
+
   const gapPctFormatted = `${(summary.budget.gapPct * 100).toFixed(
     summary.budget.gapPct === 0 ? 0 : 1
   )}%`;
-  const shareUrl = origin ? `${origin}/r/${data.id}` : `/r/${data.id}`;
 
   const fmtRounds = (n: number) => `${n} ${n === 1 ? "round" : "rounds"}`;
   const fmtDays = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
   const fmtHours = (n: number) => `${n} ${n === 1 ? "hr" : "hrs"}`;
 
-  const summaryClipboard = `MidPoint Deal Verdict — ${projectTitle}
-Mediated Budget: ${formatMoney(summary.budget.midpoint, currency)} (${theme.label})
-Scope Effort: ${fmtHours(summary.hours.midpoint)} (${formatMoney(summary.mediatedEconomics.effectiveRate, currency, 2)}/hr effective net)
+  const summaryClipboard =
+    hasOverlap && settledBudget !== null && mediatedEcon !== null
+      ? `MidPoint Deal Verdict: ${projectTitle}
+Mediated Budget: ${formatMoney(settledBudget, currency)} (${theme.label})
+Scope Effort: ${fmtHours(summary.hours.midpoint)} (${formatMoney(mediatedEcon.effectiveRate, currency, 2)}/hr effective net)
 Upfront Deposit: ${summary.depositPct.midpoint}% (${formatMoney(summary.depositAmount, currency)})
 Payment Terms: Net ${fmtDays(summary.netDays.midpoint)}
 Revision Cap: ${fmtRounds(summary.revisions.midpoint)}
+
+${verdictText}`
+      : `MidPoint Deal Verdict: ${projectTitle}
+Status: ${theme.label} (Public Offer Spread: ${formatMoney(publicGap, currency)})
+Developer Offer: ${formatMoney(developer.budget, currency)} (${fmtHours(developer.hours)})
+Client Offer: ${formatMoney(client.budget, currency)} (${fmtHours(client.hours)})
+Bridge Path 1 (Full Scope): ~${formatMoney(recommendedBudget, currency)} for ${fmtHours(summary.hours.midpoint)}
+Bridge Path 2 (Cap Scope): ${formatMoney(client.budget, currency)} capped at ${fmtHours(recommendedHours)}
 
 ${verdictText}`;
 
@@ -181,7 +304,10 @@ ${verdictText}`;
       dev: formatMoney(developer.budget, currency),
       client: formatMoney(client.budget, currency),
       spread: gapPctFormatted,
-      midpoint: formatMoney(summary.budget.midpoint, currency),
+      midpoint:
+        hasOverlap && settledBudget !== null
+          ? formatMoney(settledBudget, currency)
+          : "No overlap",
       highlight: true,
     },
     {
@@ -189,7 +315,7 @@ ${verdictText}`;
       dev: fmtHours(developer.hours),
       client: fmtHours(client.hours),
       spread: fmtHours(Math.abs(developer.hours - client.hours)),
-      midpoint: fmtHours(summary.hours.midpoint),
+      midpoint: hasOverlap ? fmtHours(summary.hours.midpoint) : "Pending",
       highlight: false,
     },
     {
@@ -197,7 +323,10 @@ ${verdictText}`;
       dev: `${formatMoney(summary.developerEconomics.effectiveRate, currency, 2)}/hr`,
       client: `${formatMoney(summary.clientEconomics.effectiveRate, currency, 2)}/hr`,
       spread: `${summary.platformFeePct}% fee`,
-      midpoint: `${formatMoney(summary.mediatedEconomics.effectiveRate, currency, 2)}/hr`,
+      midpoint:
+        hasOverlap && mediatedEcon !== null
+          ? `${formatMoney(mediatedEcon.effectiveRate, currency, 2)}/hr`
+          : "Pending",
       highlight: true,
     },
     {
@@ -205,10 +334,12 @@ ${verdictText}`;
       dev: `${developer.depositPct}%`,
       client: `${client.depositPct}%`,
       spread: `${Math.abs(developer.depositPct - client.depositPct)} pts`,
-      midpoint: `${summary.depositPct.midpoint}% (${formatMoney(
-        summary.depositAmount,
-        currency
-      )})`,
+      midpoint: hasOverlap
+        ? `${summary.depositPct.midpoint}% (${formatMoney(
+            summary.depositAmount,
+            currency
+          )})`
+        : "Pending",
       highlight: false,
     },
     {
@@ -216,7 +347,7 @@ ${verdictText}`;
       dev: `Net ${developer.netDays}`,
       client: `Net ${client.netDays}`,
       spread: fmtDays(Math.abs(developer.netDays - client.netDays)),
-      midpoint: `Net ${fmtDays(summary.netDays.midpoint)}`,
+      midpoint: hasOverlap ? `Net ${fmtDays(summary.netDays.midpoint)}` : "Pending",
       highlight: false,
     },
     {
@@ -224,29 +355,87 @@ ${verdictText}`;
       dev: fmtRounds(developer.revisions),
       client: fmtRounds(client.revisions),
       spread: fmtRounds(Math.abs(developer.revisions - client.revisions)),
-      midpoint: fmtRounds(summary.revisions.midpoint),
+      midpoint: hasOverlap ? fmtRounds(summary.revisions.midpoint) : "Pending",
       highlight: false,
     },
   ];
 
-  const guardrails = [
-    `Lock ${summary.depositPct.midpoint}% upfront deposit (${formatMoney(
-      summary.depositAmount,
-      currency
-    )}) prior to kickoff.`,
-    `Cap scope at ${summary.hours.midpoint} engineering ${summary.hours.midpoint === 1 ? "hour" : "hours"} and ${summary.revisions.midpoint} revision ${summary.revisions.midpoint === 1 ? "round" : "rounds"}.`,
-    `Settle remaining balance on Net ${summary.netDays.midpoint} day invoice terms.`,
-    `Sign a Scope of Work (SOW) referencing the ${formatMoney(
-      summary.budget.midpoint,
-      currency
-    )} mediated price.`,
-  ];
+  const actionPlan = summary.actionPlan ?? {
+    tone: hasOverlap
+      ? summary.mediatedRisk.tier === "HIGH RISK"
+        ? "high_risk"
+        : summary.mediatedRisk.tier === "MEDIUM RISK"
+        ? "conditional"
+        : "ready"
+      : "bridge",
+    badge: hasOverlap
+      ? summary.mediatedRisk.tier === "HIGH RISK"
+        ? "HIGH EXPOSURE WARNING"
+        : summary.mediatedRisk.tier === "MEDIUM RISK"
+        ? "CONDITIONAL APPROVAL"
+        : "READY FOR KICKOFF"
+      : "WAYS TO BRIDGE THIS GAP",
+    title: hasOverlap
+      ? summary.mediatedRisk.tier === "HIGH RISK"
+        ? "Mandatory Risk Countermeasures"
+        : summary.mediatedRisk.tier === "MEDIUM RISK"
+        ? "Recommended Contract Guardrails"
+        : "Next Steps to Finalize"
+      : "Paths to Unlock an Agreement",
+    subtitle: hasOverlap
+      ? `Commercial terms and risk profile (${summary.mediatedRisk.score}/100) evaluated for contract execution:`
+      : `Current boundaries do not intersect across the ${formatMoney(
+          publicGap,
+          currency
+        )} offer spread. Choose one of these trade-offs:`,
+    items:
+      summary.guardrails && summary.guardrails.length > 0
+        ? summary.guardrails
+        : hasOverlap && settledBudget !== null
+        ? [
+            summary.depositPct.midpoint > 0
+              ? `Issue Invoice #1 for the ${summary.depositPct.midpoint}% upfront deposit (${formatMoney(
+                  summary.depositAmount,
+                  currency
+                )}) prior to kickoff.`
+              : `Split the ${formatMoney(
+                  settledBudget,
+                  currency
+                )} total into milestone invoices on Net ${summary.netDays.midpoint} terms.`,
+            `Cap scope at ${summary.hours.midpoint} engineering ${
+              summary.hours.midpoint === 1 ? "hour" : "hours"
+            } and ${summary.revisions.midpoint} revision ${
+              summary.revisions.midpoint === 1 ? "round" : "rounds"
+            }.`,
+            `Sign a Scope of Work (SOW) referencing the ${formatMoney(
+              settledBudget,
+              currency
+            )} mediated price.`,
+          ]
+        : [
+            `Option A (Full Scope Compromise): Meet near ${formatMoney(
+              recommendedBudget,
+              currency
+            )} for the ${summary.hours.midpoint}-hour scope.`,
+            `Option B (Cap Scope to Client Budget): Hold budget at ${formatMoney(
+              client.budget,
+              currency
+            )} by capping Phase 1 scope at ${recommendedHours} estimated hours.`,
+            `Option C (Phased Milestone Split): Lock Core MVP now and price remaining hours as Phase 2.`,
+          ],
+  };
 
   const isExactBudgetMatch = developer.budget === client.budget;
   const lowSide = developer.budget <= client.budget ? "DEVELOPER" : "CLIENT";
   const highSide = developer.budget <= client.budget ? "CLIENT" : "DEVELOPER";
   const lowVal = Math.min(developer.budget, client.budget);
   const highVal = Math.max(developer.budget, client.budget);
+  const settledRatio =
+    hasOverlap && settledBudget !== null && highVal > lowVal
+      ? Math.min(1, Math.max(0, (settledBudget - lowVal) / (highVal - lowVal)))
+      : 0.5;
+  const settledTrackPct = Math.round((12 + settledRatio * 76) * 10) / 10;
+  const settledLabelPct = Math.min(82, Math.max(18, settledTrackPct));
 
   return (
     <div className="space-y-6">
@@ -304,26 +493,57 @@ ${verdictText}`;
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                <div>
-                  <p className="text-xs text-[#B4B8C8]">
-                    Fair Mediated Budget
-                  </p>
-                  <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-white font-victor mt-1">
-                    {formatMoney(summary.budget.midpoint, currency)}
-                  </div>
-                </div>
+                {hasOverlap && settledBudget !== null && mediatedEcon !== null ? (
+                  <>
+                    <div>
+                      <p className="text-xs text-[#B4B8C8]">
+                        Fair Mediated Budget
+                      </p>
+                      <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-white font-victor mt-1">
+                        {formatMoney(settledBudget, currency)}
+                      </div>
+                    </div>
 
-                <div className="sm:text-right">
-                  <p className="text-xs text-[#989898]">
-                    Mediated Effective Rate (Net)
-                  </p>
-                  <div className="text-2xl sm:text-3xl font-semibold text-[#F1F1F1] font-victor mt-0.5">
-                    {formatMoney(summary.mediatedEconomics.effectiveRate, currency, 2)}
-                    <span className="text-sm font-normal text-[#989898]">
-                      /hr
-                    </span>
-                  </div>
-                </div>
+                    <div className="sm:text-right">
+                      <p className="text-xs text-[#989898]">
+                        Mediated Effective Rate (Net)
+                      </p>
+                      <div className="text-2xl sm:text-3xl font-semibold text-[#F1F1F1] font-victor mt-0.5">
+                        {formatMoney(mediatedEcon.effectiveRate, currency, 2)}
+                        <span className="text-sm font-normal text-[#989898]">
+                          /hr
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <p className="text-xs text-[#B4B8C8]">
+                        Public Offer Spread ({formatMoney(client.budget, currency)} vs {formatMoney(developer.budget, currency)})
+                      </p>
+                      <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-white font-victor mt-1">
+                        {formatMoney(publicGap, currency)}
+                      </div>
+                    </div>
+
+                    <div className="sm:text-right">
+                      <p className="text-xs text-[#989898]">
+                        Recommended Bridge Target
+                      </p>
+                      <div className="text-xl sm:text-2xl font-semibold text-[#F1F1F1] font-victor mt-0.5">
+                        ~{formatMoney(recommendedBudget, currency)}{" "}
+                        <span className="text-sm font-normal text-[#989898]">
+                          or cap at
+                        </span>{" "}
+                        {recommendedHours} hrs
+                      </div>
+                      <p className="text-[11px] text-[#FF85B8] mt-1">
+                        Ask for {formatMoney(recommendedBudget, currency)} ({summary.hours.midpoint}h) or cap {formatMoney(client.budget, currency)} at {recommendedHours}h
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               <p className="text-sm sm:text-[15px] text-[#F1F1F1]/90 leading-relaxed">
@@ -396,7 +616,13 @@ ${verdictText}`;
                       </td>
                       <td
                         className={`py-3.5 pl-3 text-right font-victor font-semibold ${
-                          row.highlight ? "text-[#39D98A]" : "text-white"
+                          row.highlight
+                            ? hasOverlap
+                              ? "text-[#39D98A]"
+                              : "text-[#FF85B8]"
+                            : hasOverlap
+                              ? "text-white"
+                              : "text-[#989898]"
                         }`}
                       >
                         {row.midpoint}
@@ -418,17 +644,29 @@ ${verdictText}`;
                   <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-[#B4B8C8]">
                     Developer Scope Notes
                   </span>
-                  <p className="text-xs text-[#F1F1F1]/85 leading-relaxed break-words whitespace-pre-wrap">
-                    “{developer.reason}”
-                  </p>
+                  {developer.reason.trim() ? (
+                    <p className="text-xs text-[#F1F1F1]/85 leading-relaxed break-words whitespace-pre-wrap">
+                      “{developer.reason}”
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[#989898] italic">
+                      No notes added.
+                    </p>
+                  )}
                 </div>
                 <div className="dsq-tile rounded-xl p-4 space-y-1.5">
                   <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-[#B4B8C8]">
                     Client Budget Context
                   </span>
-                  <p className="text-xs text-[#F1F1F1]/85 leading-relaxed break-words whitespace-pre-wrap">
-                    “{client.reason}”
-                  </p>
+                  {client.reason.trim() ? (
+                    <p className="text-xs text-[#F1F1F1]/85 leading-relaxed break-words whitespace-pre-wrap">
+                      “{client.reason}”
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[#989898] italic">
+                      No notes added.
+                    </p>
+                  )}
                 </div>
               </div>
             </DisclosureAccordion>
@@ -440,11 +678,55 @@ ${verdictText}`;
                   Budget Comparison Visualizer
                 </span>
                 <span className="text-[11px] font-victor text-[#989898]">
-                  Spread: {formatMoney(highVal - lowVal, currency)}
+                  {hasOverlap
+                    ? `Spread: ${formatMoney(highVal - lowVal, currency)}`
+                    : `Offer spread: ${formatMoney(publicGap, currency)}`}
                 </span>
               </div>
 
-              {isExactBudgetMatch ? (
+              {!hasOverlap || settledBudget === null ? (
+                <div className="pt-6 pb-8 relative">
+                  <div className="absolute left-1/2 -translate-x-1/2 top-0 text-center">
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-[#FF006D]">
+                      NO OVERLAP
+                    </span>
+                    <span className="block text-xs font-bold text-white font-victor whitespace-nowrap">
+                      Offer Spread: {formatMoney(publicGap, currency)}
+                    </span>
+                  </div>
+
+                  <div className="relative h-1.5 mt-3">
+                    <div className="absolute left-[12%] right-[58%] top-0 bottom-0 rounded-full bg-white/20" />
+                    <div className="absolute left-[58%] right-[12%] top-0 bottom-0 rounded-full bg-white/20" />
+                    <div className="absolute left-[12%] top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-[#07090D] border-2 border-[#B4B8C8]" />
+                    <div
+                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-0.5 border-t border-dashed border-[#FF006D]/75"
+                      aria-hidden="true"
+                    />
+                    <div className="absolute left-[88%] top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-[#07090D] border-2 border-[#B4B8C8]" />
+                  </div>
+
+                  <div className="relative mt-3 min-h-9">
+                    <div className="absolute left-0 translate-x-0 text-left sm:left-[12%] sm:-translate-x-1/2 sm:text-center">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.1em] text-[#989898]">
+                        {lowSide} OFFER
+                      </span>
+                      <span className="block text-xs font-semibold text-[#B4B8C8] font-victor whitespace-nowrap">
+                        {formatMoney(lowVal, currency)}
+                      </span>
+                    </div>
+
+                    <div className="absolute right-0 translate-x-0 text-right sm:right-auto sm:left-[88%] sm:-translate-x-1/2 sm:text-center">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.1em] text-[#989898]">
+                        {highSide} OFFER
+                      </span>
+                      <span className="block text-xs font-semibold text-[#B4B8C8] font-victor whitespace-nowrap">
+                        {formatMoney(highVal, currency)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : isExactBudgetMatch ? (
                 <div className="py-4 text-center space-y-2">
                   <div className="relative h-1.5 rounded-full bg-white/10">
                     <div
@@ -456,20 +738,23 @@ ${verdictText}`;
                     />
                   </div>
                   <p className="text-xs font-medium text-[#39D98A] font-victor">
-                    Exact match at {formatMoney(summary.budget.midpoint, currency)}
+                    Exact match at {formatMoney(settledBudget, currency)}
                   </p>
                 </div>
               ) : (
                 <div className="pt-6 pb-8 relative">
-                  <div className="absolute left-1/2 -translate-x-1/2 top-0 text-center">
+                  <div
+                    className="absolute -translate-x-1/2 top-0 text-center transition-all duration-300"
+                    style={{ left: `${settledLabelPct}%` }}
+                  >
                     <span
-                      className="block text-[10px] font-bold uppercase tracking-[0.12em]"
+                      className="block text-[10px] font-bold uppercase tracking-[0.12em] whitespace-nowrap"
                       style={{ color: theme.accentColor }}
                     >
-                      FAIR MIDPOINT
+                      SETTLED DEAL
                     </span>
                     <span className="block text-xs font-bold text-white font-victor whitespace-nowrap">
-                      {formatMoney(summary.budget.midpoint, currency)}
+                      {formatMoney(settledBudget, currency)}
                     </span>
                   </div>
 
@@ -480,8 +765,9 @@ ${verdictText}`;
                     />
                     <div className="absolute left-[12%] top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-[#07090D] border-2 border-[#B4B8C8]" />
                     <div
-                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2"
+                      className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 transition-all duration-300"
                       style={{
+                        left: `${settledTrackPct}%`,
                         borderColor: theme.accentColor,
                         boxShadow: theme.dotShadow,
                       }}
@@ -514,61 +800,167 @@ ${verdictText}`;
 
             {/* Expandable Math Accordion */}
             <DisclosureAccordion
-              label="How this mediated deal & effective rate were computed"
+              label={
+                hasOverlap
+                  ? "How this mediated deal & effective rate were computed"
+                  : "How this overlap check was computed"
+              }
               open={mathOpen}
               onToggle={() => setMathOpen((prev) => !prev)}
             >
-              <div className="dsq-recessed rounded-xl p-4 space-y-2.5 text-xs text-[#B4B8C8]">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>Deterministic Budget Midpoint</span>
-                  <code className="font-victor text-white">
-                    round(({formatMoney(developer.budget, currency)} +{" "}
-                    {formatMoney(client.budget, currency)}) / 2) ={" "}
-                    {formatMoney(summary.budget.midpoint, currency)}
-                  </code>
+              {hasOverlap && settledBudget !== null && mediatedEcon !== null ? (
+                <div className="dsq-recessed rounded-xl p-4 space-y-2.5 text-xs text-[#B4B8C8]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Settled Budget (Overlap Balance)</span>
+                    <code className="font-victor text-white">
+                      {formatMoney(settledBudget, currency)}
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Net Budget (after {summary.platformFeePct}% fee)</span>
+                    <code className="font-victor text-white">
+                      {formatMoney(Math.round(mediatedEcon.netBudget), currency)}
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Adjusted Hours (10% overhead + {mediatedEcon.revisionBufferPct}% rev. buffer)</span>
+                    <code className="font-victor text-white">
+                      {summary.hours.midpoint} hrs →{" "}
+                      {Math.round(mediatedEcon.adjustedHours)} adj. hrs
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Risk &amp; Cashflow Balance Shift</span>
+                    <code className="font-victor text-white">
+                      {summary.termAdjustmentTotal
+                        ? `${summary.termAdjustmentTotal > 0 ? "+" : ""}${summary.termAdjustmentTotal}% weight`
+                        : "Balanced 50/50 split"}
+                    </code>
+                  </div>
+                  {summary.termAdjustmentFactors &&
+                    summary.termAdjustmentFactors.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {summary.termAdjustmentFactors.map((f) => (
+                          <span
+                            key={f.label}
+                            className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-victor text-[#B4B8C8]"
+                          >
+                            <span>{f.label}</span>
+                            <span
+                              className={
+                                f.deltaPct > 0
+                                  ? "text-[#FFB800]"
+                                  : "text-[#39D98A]"
+                              }
+                            >
+                              {f.deltaPct > 0 ? `+${f.deltaPct}%` : `${f.deltaPct}%`}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+                    <span>Mediated Effective Rate</span>
+                    <code className="font-victor text-[#39D98A] font-semibold">
+                      {formatMoney(mediatedEcon.effectiveRate, currency, 2)}/hr
+                    </code>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>Net Budget (after {summary.platformFeePct}% fee)</span>
-                  <code className="font-victor text-white">
-                    {formatMoney(Math.round(summary.mediatedEconomics.netBudget), currency)}
-                  </code>
+              ) : (
+                <div className="dsq-recessed rounded-xl p-4 space-y-2.5 text-xs text-[#B4B8C8]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Private Range Check</span>
+                    <code className="font-victor text-[#FF85B8]">
+                      No overlapping range
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Public Offer Spread</span>
+                    <code className="font-victor text-white">
+                      {formatMoney(publicGap, currency)} ({formatMoney(lowVal, currency)} vs {formatMoney(highVal, currency)})
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Compromise Full-Scope Target ({summary.hours.midpoint} hrs)</span>
+                    <code className="font-victor text-white">
+                      ~{formatMoney(recommendedBudget, currency)}
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Scope Cap at Client Budget ({formatMoney(client.budget, currency)})</span>
+                    <code className="font-victor text-[#39D98A] font-semibold">
+                      {recommendedHours} estimated hrs
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+                    <span>Effective Rate Check</span>
+                    <code className="font-victor text-white">
+                      Dev {formatMoney(summary.developerEconomics.effectiveRate, currency, 2)}/hr · Client{" "}
+                      {formatMoney(summary.clientEconomics.effectiveRate, currency, 2)}/hr
+                    </code>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>Adjusted Hours (10% overhead + {summary.mediatedEconomics.revisionBufferPct}% rev. buffer)</span>
-                  <code className="font-victor text-white">
-                    {summary.hours.midpoint} hrs →{" "}
-                    {Math.round(summary.mediatedEconomics.adjustedHours)} adj. hrs
-                  </code>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
-                  <span>Mediated Effective Rate</span>
-                  <code className="font-victor text-[#39D98A] font-semibold">
-                    {formatMoney(summary.mediatedEconomics.effectiveRate, currency, 2)}/hr
-                  </code>
-                </div>
-              </div>
+              )}
             </DisclosureAccordion>
           </section>
         </div>
 
-        {/* RIGHT COLUMN (2fr): Guardrails + Ready-to-Send SOW Draft + Sharing */}
+        {/* RIGHT COLUMN (2fr): Dynamic 4-State Action Plan + Ready-to-Send SOW Draft + Sharing */}
         <div className="space-y-6 lg:sticky lg:top-6">
-          {/* Contract Guardrails (Vetly Require Before You Start) */}
+          {/* Dynamic Context-Aware Action Plan Card */}
           <section className="dsq-card p-6 space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#B4B8C8]">
-                REQUIRE BEFORE KICKOFF
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                  actionPlan.tone === "ready"
+                    ? "border-[#39D98A]/35 bg-[#39D98A]/15 text-[#39D98A]"
+                    : actionPlan.tone === "conditional"
+                    ? "border-[#FFB800]/35 bg-[#FFB800]/15 text-[#FFB800]"
+                    : actionPlan.tone === "high_risk"
+                    ? "border-[#FF006D]/40 bg-[#FF006D]/15 text-[#FF006D]"
+                    : "border-[#5661FF]/45 bg-[#5661FF]/15 text-[#8C94FF]"
+                }`}
+              >
+                {actionPlan.badge}
               </span>
               <span className="text-[11px] font-victor text-[#989898]">
-                Risk {summary.mediatedRisk.score}/100
+                {hasOverlap
+                  ? `Risk ${summary.mediatedRisk.score}/100`
+                  : `Spread ${formatMoney(publicGap, currency)}`}
               </span>
             </div>
 
-            <ul className="space-y-3">
-              {guardrails.map((item) => (
-                <li key={item} className="flex items-start gap-2.5 text-xs sm:text-sm text-[#F1F1F1]/90 leading-relaxed">
-                  <span className="mt-0.5 w-5 h-5 rounded-full border border-[#FFB800]/45 bg-[#FFB800]/12 flex items-center justify-center shrink-0">
-                    <Check className="w-3 h-3 text-[#FFB800]" />
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-white">
+                {actionPlan.title}
+              </h2>
+              <p className="text-xs text-[#B4B8C8] leading-relaxed">
+                {actionPlan.subtitle}
+              </p>
+            </div>
+
+            <ul className="space-y-3 pt-1">
+              {actionPlan.items.map((item, idx) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-2.5 text-xs sm:text-sm text-[#F1F1F1]/90 leading-relaxed"
+                >
+                  <span
+                    className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center shrink-0 text-[10px] font-bold font-victor ${
+                      actionPlan.tone === "ready"
+                        ? "border-[#39D98A]/45 bg-[#39D98A]/12 text-[#39D98A]"
+                        : actionPlan.tone === "conditional"
+                        ? "border-[#FFB800]/45 bg-[#FFB800]/12 text-[#FFB800]"
+                        : actionPlan.tone === "high_risk"
+                        ? "border-[#FF006D]/45 bg-[#FF006D]/12 text-[#FF006D]"
+                        : "border-[#5661FF]/45 bg-[#5661FF]/15 text-[#8C94FF]"
+                    }`}
+                  >
+                    {actionPlan.tone === "bridge" ? (
+                      idx + 1
+                    ) : (
+                      <Check className="w-3 h-3" />
+                    )}
                   </span>
                   <span>{item}</span>
                 </li>
@@ -576,30 +968,65 @@ ${verdictText}`;
             </ul>
           </section>
 
-          {/* Ready-to-Send SOW / Agreement Draft */}
+          {/* Ready-to-Send SOW / Follow-Up Draft */}
           <section className="dsq-card p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#B4B8C8]">
-                READY-TO-SEND SOW DRAFT
+                {hasOverlap ? "READY-TO-SEND SOW DRAFT" : "SUGGESTED FOLLOW-UP MESSAGE"}
               </span>
             </div>
 
             <div className="dsq-recessed rounded-2xl p-4 sm:p-5 space-y-4">
               <div className="flex items-center justify-between gap-2 border-b border-white/[0.07] pb-3">
                 <span className="text-xs font-medium text-[#B4B8C8]">
-                  Agreement summary message
+                  {hasOverlap ? "Agreement summary message" : "Follow-up message to counterparty"}
                 </span>
                 <CopyButton
-                  text={sowDraftText}
+                  text={draftText}
                   label="Copy message"
                   copiedLabel="Copied!"
                 />
               </div>
 
               <p className="text-xs sm:text-sm text-[#F1F1F1] leading-relaxed whitespace-pre-line">
-                {sowDraftText}
+                {draftText}
               </p>
             </div>
+
+            {canGenerateAiDraft ? (
+              <button
+                type="button"
+                onClick={handleGenerateAiDraft}
+                disabled={draftingAi}
+                className="btn-dsq-primary inline-flex items-center justify-center gap-2 px-5 py-3 text-xs sm:text-sm w-full cursor-pointer disabled:opacity-70 disabled:cursor-wait"
+              >
+                {draftingAi ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Drafting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {draftGeneratedOnce
+                        ? "Regenerate with AI"
+                        : "Generate with AI"}
+                    </span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <p className="text-[11px] text-[#989898] text-center">
+                Only verified session participants can regenerate AI drafts.
+              </p>
+            )}
+
+            {draftError && (
+              <p className="text-xs text-[#EF4444]" role="alert">
+                {draftError}
+              </p>
+            )}
           </section>
 
           {/* Sharing */}

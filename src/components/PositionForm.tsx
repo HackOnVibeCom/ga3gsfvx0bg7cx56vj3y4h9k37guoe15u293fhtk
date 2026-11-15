@@ -50,6 +50,9 @@ export function PositionForm({
 
     try {
       window.localStorage.setItem(`midpoint_role_${id}`, viewerRole);
+      if (data.draftToken) {
+        window.localStorage.setItem(`midpoint_draft_token_${id}`, data.draftToken);
+      }
     } catch {
       // Ignore storage errors
     }

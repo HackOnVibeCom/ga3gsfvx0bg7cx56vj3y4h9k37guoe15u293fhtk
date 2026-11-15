@@ -148,6 +148,12 @@ export function WaitingPanel({
             <span className="mt-1 block text-lg font-semibold text-white font-victor">
               {formatMoney(positionA.budget, currency)}
             </span>
+            {positionA.reservation > 0 && (
+              <span className="mt-0.5 block text-[11px] font-victor text-[#989898]">
+                {viewerRole === "developer" ? "Min accept: " : "Max pay: "}
+                {formatMoney(positionA.reservation, currency)}
+              </span>
+            )}
           </div>
           <div className="dsq-tile rounded-xl p-3.5">
             <span className="block text-[10px] uppercase tracking-[0.12em] text-[#989898]">
@@ -191,9 +197,11 @@ export function WaitingPanel({
           </div>
         </div>
 
-        <p className="text-xs text-[#989898] leading-relaxed pt-1">
-          “{positionA.reason}”
-        </p>
+        {positionA.reason && (
+          <p className="text-xs text-[#989898] leading-relaxed pt-1">
+            “{positionA.reason}”
+          </p>
+        )}
       </section>
     </div>
   );

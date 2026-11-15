@@ -22,6 +22,7 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
     currency: "USD",
     developer: {
       budget: 8000,
+      reservation: 6500,
       hours: 120,
       depositPct: 50,
       netDays: 7,
@@ -34,8 +35,9 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
     },
     client: {
       budget: 6800,
+      reservation: 7500,
       hours: 100,
-      depositPct: 30,
+      depositPct: 25,
       netDays: 14,
       revisions: 3,
       platformFeePct: 3,
@@ -48,12 +50,13 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
   {
     id: "fixed-webapp",
     label: "High-Risk Fixed Scope",
-    badge: "Wide Gap",
+    badge: "No Overlap",
     icon: "warning",
     projectTitle: "Custom E-Commerce Admin & Inventory Sync Portal",
     currency: "USD",
     developer: {
       budget: 4800,
+      reservation: 4200,
       hours: 90,
       depositPct: 50,
       netDays: 7,
@@ -66,6 +69,7 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
     },
     client: {
       budget: 1800,
+      reservation: 2500,
       hours: 60,
       depositPct: 0,
       netDays: 30,
@@ -74,7 +78,7 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
       maxBudgetCeiling: 2500,
       flags: ["Fixed budget cap", "Strict deadline"],
       reason:
-        "Internal pilot budget is tightly capped at 1,800 with payment triggered after final store sign-off.",
+        "Internal pilot budget pilot is tightly capped with payment triggered after final store sign-off.",
     },
   },
   {
@@ -86,8 +90,9 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
     currency: "USD",
     developer: {
       budget: 16000,
+      reservation: 13000,
       hours: 140,
-      depositPct: 40,
+      depositPct: 50,
       netDays: 14,
       revisions: 2,
       platformFeePct: 0,
@@ -98,15 +103,16 @@ export const FREELANCE_PRESETS: FreelancePreset[] = [
     },
     client: {
       budget: 12500,
+      reservation: 15000,
       hours: 120,
-      depositPct: 20,
+      depositPct: 25,
       netDays: 60,
       revisions: 3,
       platformFeePct: 0,
       maxBudgetCeiling: 15000,
       flags: ["Post-launch support"],
       reason:
-        "Procurement policy defaults to Net-60 invoicing with 20% kickoff PO and 2 weeks post-launch stabilization.",
+        "Procurement policy defaults to Net-60 invoicing with 25% kickoff PO and 2 weeks post-launch stabilization.",
     },
   },
 ];

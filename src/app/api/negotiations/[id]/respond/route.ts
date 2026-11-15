@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { submitCounterpartyResponse } from "@/lib/store";
+import {
+  getNegotiationRecord,
+  oppositeRole,
+  submitCounterpartyResponse,
+} from "@/lib/store";
 import { parseDealPositionPayload } from "@/lib/validation";
 
 export async function POST(
@@ -10,7 +14,31 @@ export async function POST(
     const { id } = await context.params;
     const body = (await request.json()) as Record<string, unknown>;
 
-    const parsedPosition = parseDealPositionPayload(body);
+    const record = await getNegotiationRecord(id);
+    if (!record) {
+      return NextResponse.json(
+        { error: "Mediation session not found." },
+        { status: 404 }
+      );
+    }
+
+    const token = typeof body.token === "string" ? body.token : null;
+    if (token && token === record.ownerToken) {
+      return NextResponse.json(
+        { error: "The session creator cannot submit the counterparty position." },
+        { status: 403 }
+      );
+    }
+
+    if (record.positionB !== null) {
+      return NextResponse.json(
+        { error: "Counterparty position has already been locked." },
+        { status: 409 }
+      );
+    }
+
+    const counterpartyRole = oppositeRole(record.creatorRole);
+    const parsedPosition = parseDealPositionPayload(body, counterpartyRole);
     if (!parsedPosition.ok) {
       return NextResponse.json(
         { error: parsedPosition.error },
@@ -18,8 +46,7 @@ export async function POST(
       );
     }
 
-    const token = typeof body.token === "string" ? body.token : null;
-    const result = submitCounterpartyResponse(
+    const result = await submitCounterpartyResponse(
       id,
       parsedPosition.position,
       token

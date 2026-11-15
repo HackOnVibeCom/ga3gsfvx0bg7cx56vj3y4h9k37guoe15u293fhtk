@@ -23,7 +23,7 @@ export async function POST(request: Request) {
         : "Freelance Software Project";
 
     const currency = parseCurrency(body.currency);
-    const parsedPosition = parseDealPositionPayload(body);
+    const parsedPosition = parseDealPositionPayload(body, creatorRole);
 
     if (!parsedPosition.ok) {
       return NextResponse.json(
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { id, ownerToken } = createNegotiation({
+    const { id, ownerToken } = await createNegotiation({
       projectTitle,
       currency,
       creatorRole,

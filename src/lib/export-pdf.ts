@@ -1,6 +1,10 @@
 import { jsPDF } from "jspdf";
 import { CURRENCIES, formatMoney, type CurrencyCode } from "./currency";
-import { buildFallbackMediationCopy, isLegacyMediationRationale } from "./mediation-copy";
+import {
+  buildFallbackMediationCopy,
+  isLegacyMediationRationale,
+  stripLongDashes,
+} from "./mediation-copy";
 import type { ConfidenceTier } from "./midpoint";
 import type { PublicNegotiationView } from "./store";
 
@@ -31,6 +35,7 @@ const COLORS = {
   mint: [57, 217, 138] as const,
   amber: [255, 184, 0] as const,
   amberFill: [43, 34, 11] as const,
+  rose: [255, 133, 184] as const,
 };
 
 interface ConfidencePdfTheme {
@@ -58,6 +63,13 @@ const PDF_CONFIDENCE_THEMES: Record<ConfidenceTier, ConfidencePdfTheme> = {
   },
   wide: {
     label: "WIDE GAP",
+    accent: [255, 0, 109],
+    badgeFill: [52, 15, 35],
+    glowHex: "rgba(255, 0, 109, 0.28)",
+    baseHex: "#2E0C20",
+  },
+  no_overlap: {
+    label: "NO OVERLAP",
     accent: [255, 0, 109],
     badgeFill: [52, 15, 35],
     glowHex: "rgba(255, 0, 109, 0.28)",
@@ -320,6 +332,10 @@ export async function createMediationPdf(
 
   const { developer, client, summary, currency, projectTitle, createdAt, id } = data;
   const theme = PDF_CONFIDENCE_THEMES[summary.budget.confidence];
+  const settledBudget = summary.budget.midpoint;
+  const mediatedEcon = summary.mediatedEconomics;
+  const hasOverlap =
+    summary.hasZopa && settledBudget !== null && mediatedEcon !== null;
   const gapPctFormatted = `${(summary.budget.gapPct * 100).toFixed(
     summary.budget.gapPct === 0 ? 0 : 1
   )}%`;
@@ -334,8 +350,8 @@ export async function createMediationPdf(
       })
     : { rationale: data.rationale, draftMessage: data.draftMessage };
 
-  const verdictText = sanitizePdfText(resolvedCopy.rationale);
-  const sowDraftText = sanitizePdfText(resolvedCopy.draftMessage);
+  const verdictText = sanitizePdfText(stripLongDashes(resolvedCopy.rationale));
+  const sowDraftText = sanitizePdfText(stripLongDashes(resolvedCopy.draftMessage));
   const stripUrl = createGradientStripDataUrl();
 
   initDarkPage(doc, stripUrl);
@@ -449,7 +465,9 @@ export async function createMediationPdf(
   setRgbText(doc, theme.accent);
   doc.text(theme.label, tierX + 3, badgeTopY + 3.05);
 
-  const gapText = `${gapPctFormatted} budget gap`;
+  const gapText = hasOverlap
+    ? `${gapPctFormatted} budget gap`
+    : `Spread: ${formatPdfMoney(summary.bridgeOptions?.publicGap ?? Math.abs(developer.budget - client.budget), currency)}`;
   doc.setFont(mono, "bold");
   doc.setFontSize(7.1);
   const gapW = doc.getTextWidth(gapText) + 6;
@@ -461,42 +479,73 @@ export async function createMediationPdf(
   setRgbText(doc, theme.accent);
   doc.text(gapText, gapX + 3, gapTopY + 3.3);
 
+  const rateText =
+    hasOverlap && mediatedEcon !== null
+      ? formatPdfMoney(mediatedEcon.effectiveRate, currency, 2)
+      : null;
+
   // Key Metrics Row
   cy += 6.2;
   doc.setFont(sans, "normal");
   doc.setFontSize(7.5);
   setRgbText(doc, COLORS.ink300);
-  doc.text("Fair Mediated Budget", MARGIN_X + cardPad, cy);
+  doc.text(
+    hasOverlap ? "Fair Mediated Budget" : "Public Offer Spread",
+    MARGIN_X + cardPad,
+    cy
+  );
   setRgbText(doc, COLORS.ink500);
-  doc.text("Mediated Effective Rate (Net)", PAGE_W - MARGIN_X - cardPad, cy, {
-    align: "right",
-  });
+  doc.text(
+    hasOverlap ? "Mediated Effective Rate (Net)" : "Public Offer Range",
+    PAGE_W - MARGIN_X - cardPad,
+    cy,
+    {
+      align: "right",
+    }
+  );
 
   cy += 7.1;
   doc.setFont(mono, "bold");
   doc.setFontSize(22);
   setRgbText(doc, COLORS.white);
   doc.text(
-    formatPdfMoney(summary.budget.midpoint, currency),
+    hasOverlap && settledBudget !== null
+      ? formatPdfMoney(settledBudget, currency)
+      : formatPdfMoney(
+          summary.bridgeOptions?.publicGap ??
+            Math.abs(developer.budget - client.budget),
+          currency
+        ),
     MARGIN_X + cardPad,
     cy
   );
 
-  doc.setFont(mono, "bold");
-  doc.setFontSize(14.5);
-  const rateText = formatPdfMoney(summary.mediatedEconomics.effectiveRate, currency, 2);
-  setRgbText(doc, COLORS.ink100);
-  doc.setFont(sans, "normal");
-  doc.setFontSize(8.2);
-  const perHrW = doc.getTextWidth("/hr");
-  setRgbText(doc, COLORS.ink500);
-  doc.text("/hr", PAGE_W - MARGIN_X - cardPad, cy, { align: "right" });
-  doc.setFont(mono, "bold");
-  doc.setFontSize(14.5);
-  setRgbText(doc, COLORS.ink100);
-  doc.text(rateText, PAGE_W - MARGIN_X - cardPad - perHrW - 0.6, cy, {
-    align: "right",
-  });
+  if (hasOverlap && rateText !== null) {
+    doc.setFont(sans, "normal");
+    doc.setFontSize(8.2);
+    const perHrW = doc.getTextWidth("/hr");
+    setRgbText(doc, COLORS.ink500);
+    doc.text("/hr", PAGE_W - MARGIN_X - cardPad, cy, { align: "right" });
+    doc.setFont(mono, "bold");
+    doc.setFontSize(14.5);
+    setRgbText(doc, COLORS.ink100);
+    doc.text(rateText, PAGE_W - MARGIN_X - cardPad - perHrW - 0.6, cy, {
+      align: "right",
+    });
+  } else {
+    doc.setFont(mono, "bold");
+    doc.setFontSize(11);
+    setRgbText(doc, COLORS.ink100);
+    doc.text(
+      `${formatPdfMoney(client.budget, currency)} vs ${formatPdfMoney(
+        developer.budget,
+        currency
+      )}`,
+      PAGE_W - MARGIN_X - cardPad,
+      cy,
+      { align: "right" }
+    );
+  }
 
   cy += 3.6;
   setRgbDraw(doc, COLORS.tileBorder);
@@ -518,7 +567,10 @@ export async function createMediationPdf(
       dev: formatPdfMoney(developer.budget, currency),
       client: formatPdfMoney(client.budget, currency),
       spread: gapPctFormatted,
-      midpoint: formatPdfMoney(summary.budget.midpoint, currency),
+      midpoint:
+        hasOverlap && settledBudget !== null
+          ? formatPdfMoney(settledBudget, currency)
+          : "No overlap",
       highlight: true,
     },
     {
@@ -526,7 +578,7 @@ export async function createMediationPdf(
       dev: `${developer.hours} hrs`,
       client: `${client.hours} hrs`,
       spread: `${Math.abs(developer.hours - client.hours)} hrs`,
-      midpoint: `${summary.hours.midpoint} hrs`,
+      midpoint: hasOverlap ? `${summary.hours.midpoint} hrs` : "Pending",
       highlight: false,
     },
     {
@@ -534,7 +586,7 @@ export async function createMediationPdf(
       dev: `${formatPdfMoney(summary.developerEconomics.effectiveRate, currency, 2)}/hr`,
       client: `${formatPdfMoney(summary.clientEconomics.effectiveRate, currency, 2)}/hr`,
       spread: `${summary.platformFeePct}% fee`,
-      midpoint: `${rateText}/hr`,
+      midpoint: rateText !== null ? `${rateText}/hr` : "Pending",
       highlight: true,
     },
     {
@@ -542,10 +594,12 @@ export async function createMediationPdf(
       dev: `${developer.depositPct}%`,
       client: `${client.depositPct}%`,
       spread: `${Math.abs(developer.depositPct - client.depositPct)} pts`,
-      midpoint: `${summary.depositPct.midpoint}% (${formatPdfMoney(
-        summary.depositAmount,
-        currency
-      )})`,
+      midpoint: hasOverlap
+        ? `${summary.depositPct.midpoint}% (${formatPdfMoney(
+            summary.depositAmount,
+            currency
+          )})`
+        : "Pending",
       highlight: false,
     },
     {
@@ -553,7 +607,7 @@ export async function createMediationPdf(
       dev: `Net ${developer.netDays}`,
       client: `Net ${client.netDays}`,
       spread: `${Math.abs(developer.netDays - client.netDays)} days`,
-      midpoint: `Net ${summary.netDays.midpoint} days`,
+      midpoint: hasOverlap ? `Net ${summary.netDays.midpoint} days` : "Pending",
       highlight: false,
     },
     {
@@ -563,9 +617,11 @@ export async function createMediationPdf(
       spread: `${Math.abs(developer.revisions - client.revisions)} ${
         Math.abs(developer.revisions - client.revisions) === 1 ? "round" : "rounds"
       }`,
-      midpoint: `${summary.revisions.midpoint} ${
-        summary.revisions.midpoint === 1 ? "round" : "rounds"
-      }`,
+      midpoint: hasOverlap
+        ? `${summary.revisions.midpoint} ${
+            summary.revisions.midpoint === 1 ? "round" : "rounds"
+          }`
+        : "Pending",
       highlight: false,
     },
   ];
@@ -644,7 +700,16 @@ export async function createMediationPdf(
 
     doc.setFont(mono, "bold");
     doc.setFontSize(7.8);
-    setRgbText(doc, row.highlight ? COLORS.mint : COLORS.white);
+    setRgbText(
+      doc,
+      row.highlight
+        ? hasOverlap
+          ? COLORS.mint
+          : COLORS.rose
+        : hasOverlap
+          ? COLORS.white
+          : COLORS.ink500
+    );
     doc.text(row.midpoint, colMidX, baseline, { align: "right" });
   });
 
@@ -670,7 +735,9 @@ export async function createMediationPdf(
   doc.setFontSize(6.8);
   setRgbText(doc, COLORS.ink500);
   doc.text(
-    `Spread: ${formatPdfMoney(highVal - lowVal, currency)}`,
+    hasOverlap
+      ? `Spread: ${formatPdfMoney(highVal - lowVal, currency)}`
+      : `Gap to bridge: ${formatPdfMoney(summary.shortfall, currency)}`,
     innerX + innerW - 4,
     vizY + 4.8,
     { align: "right" }
@@ -681,64 +748,42 @@ export async function createMediationPdf(
   const trackMid = (trackStart + trackEnd) / 2;
   const trackY = vizY + 13.8;
 
-  // Base track bar
-  setRgbFill(doc, COLORS.recessedBorder);
-  doc.roundedRect(trackStart, trackY - 0.55, trackEnd - trackStart, 1.1, 0.5, 0.5, "F");
+  if (!hasOverlap || settledBudget === null) {
+    const segW = Math.max(12, trackMid - 10 - trackStart);
+    setRgbFill(doc, COLORS.recessedBorder);
+    doc.roundedRect(trackStart, trackY - 0.55, segW, 1.1, 0.5, 0.5, "F");
+    doc.roundedRect(trackMid + 10, trackY - 0.55, segW, 1.1, 0.5, 0.5, "F");
 
-  if (isExactMatch) {
-    setRgbFill(doc, COLORS.mint);
-    setRgbDraw(doc, COLORS.white);
+    setRgbDraw(doc, theme.accent);
     doc.setLineWidth(0.45);
-    doc.circle(trackMid, trackY, 1.7, "FD");
+    doc.line(trackMid - 5, trackY, trackMid - 2, trackY);
+    doc.line(trackMid + 2, trackY, trackMid + 5, trackY);
 
-    doc.setFont(mono, "bold");
-    doc.setFontSize(7.2);
-    setRgbText(doc, COLORS.mint);
-    doc.text(
-      `Exact match at ${formatPdfMoney(summary.budget.midpoint, currency)}`,
-      trackMid,
-      vizY + 19.8,
-      { align: "center" }
-    );
-  } else {
-    // Highlighted range bridge
-    setRgbFill(doc, theme.accent);
-    doc.rect(trackStart, trackY - 0.55, trackEnd - trackStart, 1.1, "F");
-
-    // Low and High endpoint markers
     setRgbFill(doc, COLORS.bg);
     setRgbDraw(doc, COLORS.ink300);
     doc.setLineWidth(0.45);
     doc.circle(trackStart, trackY, 1.4, "FD");
     doc.circle(trackEnd, trackY, 1.4, "FD");
 
-    // Center MidPoint marker
-    setRgbFill(doc, COLORS.white);
-    setRgbDraw(doc, theme.accent);
-    doc.setLineWidth(0.55);
-    doc.circle(trackMid, trackY, 1.85, "FD");
-
-    // MidPoint callout cleanly positioned above center node
     doc.setFont(sans, "bold");
     doc.setFontSize(5.8);
     setRgbText(doc, theme.accent);
-    doc.text("FAIR MIDPOINT", trackMid, vizY + 6.8, { align: "center" });
+    doc.text("NO OVERLAP", trackMid, vizY + 6.8, { align: "center" });
     doc.setFont(mono, "bold");
     doc.setFontSize(7.2);
     setRgbText(doc, COLORS.white);
     doc.text(
-      formatPdfMoney(summary.budget.midpoint, currency),
+      `Offer Spread: ${formatPdfMoney(summary.bridgeOptions?.publicGap ?? summary.shortfall, currency)}`,
       trackMid,
       vizY + 9.8,
       { align: "center" }
     );
 
-    // Endpoint labels below
     doc.setFont(sans, "bold");
     doc.setFontSize(5.8);
     setRgbText(doc, COLORS.ink500);
-    doc.text(lowSide, trackStart, vizY + 18.0, { align: "center" });
-    doc.text(highSide, trackEnd, vizY + 18.0, { align: "center" });
+    doc.text(`${lowSide} OFFER`, trackStart, vizY + 18.0, { align: "center" });
+    doc.text(`${highSide} OFFER`, trackEnd, vizY + 18.0, { align: "center" });
 
     doc.setFont(mono, "bold");
     doc.setFontSize(6.8);
@@ -749,26 +794,125 @@ export async function createMediationPdf(
     doc.text(formatPdfMoney(highVal, currency), trackEnd, vizY + 20.6, {
       align: "center",
     });
+  } else {
+    // Base track bar
+    setRgbFill(doc, COLORS.recessedBorder);
+    doc.roundedRect(trackStart, trackY - 0.55, trackEnd - trackStart, 1.1, 0.5, 0.5, "F");
+
+    if (isExactMatch) {
+      setRgbFill(doc, COLORS.mint);
+      setRgbDraw(doc, COLORS.white);
+      doc.setLineWidth(0.45);
+      doc.circle(trackMid, trackY, 1.7, "FD");
+
+      doc.setFont(mono, "bold");
+      doc.setFontSize(7.2);
+      setRgbText(doc, COLORS.mint);
+      doc.text(
+        `Exact match at ${formatPdfMoney(settledBudget, currency)}`,
+        trackMid,
+        vizY + 19.8,
+        { align: "center" }
+      );
+    } else {
+      // Highlighted range bridge
+      setRgbFill(doc, theme.accent);
+      doc.rect(trackStart, trackY - 0.55, trackEnd - trackStart, 1.1, "F");
+
+      // Low and High endpoint markers
+      setRgbFill(doc, COLORS.bg);
+      setRgbDraw(doc, COLORS.ink300);
+      doc.setLineWidth(0.45);
+      doc.circle(trackStart, trackY, 1.4, "FD");
+      doc.circle(trackEnd, trackY, 1.4, "FD");
+
+      // Proportional Settled Deal marker
+      const settledRatio =
+        highVal > lowVal
+          ? Math.min(1, Math.max(0, (settledBudget - lowVal) / (highVal - lowVal)))
+          : 0.5;
+      const settledX = trackStart + settledRatio * (trackEnd - trackStart);
+      const settledLabelX = Math.min(
+        trackEnd - 8,
+        Math.max(trackStart + 8, settledX)
+      );
+
+      setRgbFill(doc, COLORS.white);
+      setRgbDraw(doc, theme.accent);
+      doc.setLineWidth(0.55);
+      doc.circle(settledX, trackY, 1.85, "FD");
+
+      // Settled Deal callout cleanly positioned above node
+      doc.setFont(sans, "bold");
+      doc.setFontSize(5.8);
+      setRgbText(doc, theme.accent);
+      doc.text("SETTLED DEAL", settledLabelX, vizY + 6.8, { align: "center" });
+      doc.setFont(mono, "bold");
+      doc.setFontSize(7.2);
+      setRgbText(doc, COLORS.white);
+      doc.text(
+        formatPdfMoney(settledBudget, currency),
+        settledLabelX,
+        vizY + 9.8,
+        { align: "center" }
+      );
+
+      // Endpoint labels below
+      doc.setFont(sans, "bold");
+      doc.setFontSize(5.8);
+      setRgbText(doc, COLORS.ink500);
+      doc.text(lowSide, trackStart, vizY + 18.0, { align: "center" });
+      doc.text(highSide, trackEnd, vizY + 18.0, { align: "center" });
+
+      doc.setFont(mono, "bold");
+      doc.setFontSize(6.8);
+      setRgbText(doc, COLORS.ink300);
+      doc.text(formatPdfMoney(lowVal, currency), trackStart, vizY + 20.6, {
+        align: "center",
+      });
+      doc.text(formatPdfMoney(highVal, currency), trackEnd, vizY + 20.6, {
+        align: "center",
+      });
+    }
   }
 
   y += matrixH + 3.6;
 
-  // 5. Two-Column Split: Require Before Kickoff + Ready-to-Send SOW Draft
+  // 5. Two-Column Split: Require Before Kickoff / Next Steps + SOW / Follow-Up Draft
   const halfW = (CONTENT_W - 4.5) / 2; // ~86.75mm
   const rightColX = MARGIN_X + halfW + 4.5;
 
-  const guardrails = [
-    `Lock ${summary.depositPct.midpoint}% upfront deposit (${formatPdfMoney(
-      summary.depositAmount,
-      currency
-    )}) prior to kickoff.`,
-    `Cap scope at ${summary.hours.midpoint} engineering hours and ${summary.revisions.midpoint} revision rounds.`,
-    `Settle remaining balance on Net ${summary.netDays.midpoint} day invoice terms.`,
-    `Sign a Scope of Work (SOW) referencing the ${formatPdfMoney(
-      summary.budget.midpoint,
-      currency
-    )} mediated price.`,
-  ];
+  const publicGap =
+    summary.bridgeOptions?.publicGap ??
+    Math.round(Math.abs(developer.budget - client.budget));
+
+  const guardrails =
+    summary.actionPlan?.items && summary.actionPlan.items.length > 0
+      ? summary.actionPlan.items
+      : summary.guardrails && summary.guardrails.length > 0
+      ? summary.guardrails
+      : hasOverlap && settledBudget !== null
+      ? [
+          `Lock ${summary.depositPct.midpoint}% upfront deposit (${formatPdfMoney(
+            summary.depositAmount,
+            currency
+          )}) prior to kickoff.`,
+          `Cap scope at ${summary.hours.midpoint} engineering hours and ${summary.revisions.midpoint} revision rounds.`,
+          `Settle remaining balance on Net ${summary.netDays.midpoint} day invoice terms.`,
+          `Sign a Scope of Work (SOW) referencing the ${formatPdfMoney(
+            settledBudget,
+            currency
+          )} mediated price.`,
+        ]
+      : [
+          `Clarify must-have vs. optional features across the ${formatPdfMoney(
+            publicGap,
+            currency
+          )} offer spread.`,
+          `Split delivery into Phase 1 MVP and Phase 2 add-ons so budgets align cleanly.`,
+          `Adjust deposit (${developer.depositPct}% vs ${client.depositPct}%) or payment timing to share cashflow risk.`,
+          `Start a new MidPoint round once both sides adjust scope or price range.`,
+        ];
 
   doc.setFont(sans, "normal");
   doc.setFontSize(7.6);
@@ -788,7 +932,7 @@ export async function createMediationPdf(
   const splitCardH = Math.max(15 + guardrailsContentH + 4, 15 + sowBoxH + 5);
   y = ensurePageSpace(doc, y, splitCardH, stripUrl);
 
-  // Left: Require Before Kickoff Card
+  // Left: Dynamic Action Plan / Next Steps Card
   setRgbFill(doc, COLORS.card);
   setRgbDraw(doc, COLORS.cardBorder);
   doc.setLineWidth(0.32);
@@ -797,13 +941,20 @@ export async function createMediationPdf(
   doc.setFont(sans, "bold");
   doc.setFontSize(7);
   setRgbText(doc, COLORS.ink300);
-  doc.text("REQUIRE BEFORE KICKOFF", MARGIN_X + 5.5, y + 6);
+  doc.text(
+    summary.actionPlan?.badge ??
+      (hasOverlap ? "REQUIRE BEFORE KICKOFF" : "WAYS TO BRIDGE THIS GAP"),
+    MARGIN_X + 5.5,
+    y + 6
+  );
 
   doc.setFont(mono, "normal");
   doc.setFontSize(6.8);
   setRgbText(doc, COLORS.ink500);
   doc.text(
-    `Risk ${summary.mediatedRisk.score}/100`,
+    hasOverlap
+      ? `Risk ${summary.mediatedRisk.score}/100`
+      : `Spread ${formatPdfMoney(publicGap, currency)}`,
     MARGIN_X + halfW - 5.5,
     y + 6,
     { align: "right" }
@@ -819,7 +970,7 @@ export async function createMediationPdf(
     gy += lines.length * 3.45 + 2.4;
   });
 
-  // Right: Ready-to-Send SOW Draft Card
+  // Right: Ready-to-Send SOW / Suggested Follow-Up Draft Card
   setRgbFill(doc, COLORS.card);
   setRgbDraw(doc, COLORS.cardBorder);
   doc.setLineWidth(0.32);
@@ -828,7 +979,11 @@ export async function createMediationPdf(
   doc.setFont(sans, "bold");
   doc.setFontSize(7);
   setRgbText(doc, COLORS.ink300);
-  doc.text("READY-TO-SEND SOW DRAFT", rightColX + 5.5, y + 6);
+  doc.text(
+    hasOverlap ? "READY-TO-SEND SOW DRAFT" : "SUGGESTED FOLLOW-UP MESSAGE",
+    rightColX + 5.5,
+    y + 6
+  );
 
   const sowInnerY = y + 10;
   const sowInnerH = splitCardH - 14.5;
@@ -845,8 +1000,12 @@ export async function createMediationPdf(
   y += splitCardH + 4.2;
 
   // 6. Party Scope & Context Notes Card (full unwrapped text, auto-paginates if needed)
-  const devReason = sanitizePdfText(`“${developer.reason}”`);
-  const clientReason = sanitizePdfText(`“${client.reason}”`);
+  const devReason = developer.reason.trim()
+    ? sanitizePdfText(`“${developer.reason}”`)
+    : "No notes added.";
+  const clientReason = client.reason.trim()
+    ? sanitizePdfText(`“${client.reason}”`)
+    : "No notes added.";
   doc.setFont(sans, "normal");
   doc.setFontSize(7.4);
   const devNoteLines = doc.splitTextToSize(devReason, halfW - 14);
@@ -914,7 +1073,7 @@ export async function createMediationPdf(
     doc.setFontSize(6.8);
     setRgbText(doc, COLORS.ink500);
     doc.text(
-      "MidPoint  ·  Deterministic Blind AI Deal Mediator",
+      "MidPoint  ·  Blind AI Deal Mediator",
       MARGIN_X,
       FOOTER_RULE_Y + 4.8
     );

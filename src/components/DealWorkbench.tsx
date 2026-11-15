@@ -58,16 +58,24 @@ export function DealWorkbench({
   );
   const [currency, setCurrency] = useState<CurrencyCode>(lockedCurrency);
 
-  const [budgetInput, setBudgetInput] = useState("8000");
-  const [hoursInput, setHoursInput] = useState("120");
-  const [depositPct, setDepositPct] = useState(50);
-  const [netDays, setNetDays] = useState(7);
-  const [revisions, setRevisions] = useState(2);
+  const [budgetInput, setBudgetInput] = useState(
+    lockedRole === "client" ? "6200" : "8000"
+  );
+  const [reservationInput, setReservationInput] = useState(
+    lockedRole === "client" ? "8500" : "6500"
+  );
+  const [hoursInput, setHoursInput] = useState(
+    lockedRole === "client" ? "100" : "120"
+  );
+  const [depositPct, setDepositPct] = useState(
+    lockedRole === "client" ? 25 : 50
+  );
+  const [netDays, setNetDays] = useState(lockedRole === "client" ? 14 : 7);
+  const [revisions, setRevisions] = useState(lockedRole === "client" ? 3 : 2);
   const [platformFeePct, setPlatformFeePct] = useState(
     mode === "respond" ? initialFeeHint : 3
   );
   const [targetRateInput, setTargetRateInput] = useState("60");
-  const [maxCeilingInput, setMaxCeilingInput] = useState("9000");
   const [flags, setFlags] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -86,6 +94,7 @@ export function DealWorkbench({
 
     const p = forRole === "developer" ? preset.developer : preset.client;
     setBudgetInput(String(p.budget));
+    setReservationInput(String(p.reservation));
     setHoursInput(String(p.hours));
     setDepositPct(p.depositPct);
     setNetDays(p.netDays);
@@ -93,9 +102,6 @@ export function DealWorkbench({
     setPlatformFeePct(p.platformFeePct);
     if (p.targetHourlyRate !== undefined) {
       setTargetRateInput(String(p.targetHourlyRate));
-    }
-    if (p.maxBudgetCeiling !== undefined) {
-      setMaxCeilingInput(String(p.maxBudgetCeiling));
     }
     setFlags(p.flags);
     setReason(p.reason);
@@ -106,6 +112,7 @@ export function DealWorkbench({
     if (mode === "respond" || nextRole === role) return;
     setRole(nextRole);
     setFlags([]);
+    setError(null);
 
     if (activePresetId) {
       const matched = FREELANCE_PRESETS.find((p) => p.id === activePresetId);
@@ -115,18 +122,19 @@ export function DealWorkbench({
       }
     }
 
-    // Apply clean default baselines per perspective when switching manually
     if (nextRole === "developer") {
       setBudgetInput("8000");
+      setReservationInput("6500");
       setHoursInput("120");
       setDepositPct(50);
       setNetDays(7);
       setRevisions(2);
     } else {
       setBudgetInput("6200");
+      setReservationInput("8500");
       setHoursInput("100");
       setDepositPct(25);
-      setNetDays(30);
+      setNetDays(14);
       setRevisions(3);
     }
   }
@@ -138,9 +146,9 @@ export function DealWorkbench({
   }
 
   const parsedBudget = Math.max(0, Math.round(Number(budgetInput) || 0));
+  const parsedReservation = Math.max(0, Math.round(Number(reservationInput) || 0));
   const parsedHours = Math.max(0, Math.round(Number(hoursInput) || 0));
   const parsedTargetRate = Math.max(0, Math.round(Number(targetRateInput) || 0));
-  const parsedCeiling = Math.max(0, Math.round(Number(maxCeilingInput) || 0));
 
   async function handleFormSubmit(e: FormEvent) {
     e.preventDefault();
@@ -156,14 +164,33 @@ export function DealWorkbench({
       return;
     }
 
+    if (parsedReservation < 1) {
+      setError(
+        activeRole === "developer"
+          ? "Please enter the minimum amount you'd accept."
+          : "Please enter the maximum budget you can pay."
+      );
+      return;
+    }
+
+    if (activeRole === "developer" && parsedReservation > parsedBudget) {
+      setError("Minimum you'd accept cannot exceed your project quote.");
+      return;
+    }
+
+    if (activeRole === "client" && parsedReservation < parsedBudget) {
+      setError("Maximum you can pay cannot be lower than your target budget.");
+      return;
+    }
+
     if (parsedHours < 1) {
       setError("Please enter estimated scope hours greater than 0.");
       return;
     }
 
     const trimmedReason = reason.trim();
-    if (trimmedReason.length < 3) {
-      setError("Please include brief scope or budget reasoning (at least 3 chars).");
+    if (trimmedReason.length > 1200) {
+      setError("Notes must be 1,200 characters or fewer.");
       return;
     }
 
@@ -175,6 +202,7 @@ export function DealWorkbench({
         role: activeRole,
         position: {
           budget: parsedBudget,
+          reservation: parsedReservation,
           hours: parsedHours,
           depositPct,
           netDays,
@@ -182,7 +210,8 @@ export function DealWorkbench({
           platformFeePct,
           targetHourlyRate:
             activeRole === "developer" ? parsedTargetRate : undefined,
-          maxBudgetCeiling: activeRole === "client" ? parsedCeiling : undefined,
+          maxBudgetCeiling:
+            activeRole === "client" ? parsedReservation : undefined,
           flags,
           reason: trimmedReason,
         },
@@ -195,10 +224,8 @@ export function DealWorkbench({
     }
   }
 
-  const depositOptions =
-    activeRole === "developer" ? [0, 25, 50, 100] : [0, 20, 30, 50];
-  const netDayOptions =
-    activeRole === "developer" ? [0, 7, 14, 30] : [7, 15, 30, 60];
+  const depositOptions = [0, 25, 50, 100];
+  const netDayOptions = [0, 7, 14, 30, 60];
   const revisionOptions = [1, 2, 3, 4, 5];
   const flagOptions =
     activeRole === "developer" ? DEVELOPER_RED_FLAGS : CLIENT_PRIORITIES;
@@ -293,7 +320,7 @@ export function DealWorkbench({
           </div>
         )}
 
-        {/* 3 Preset Scenario Buttons (Vetly style) */}
+        {/* 3 Preset Scenario Buttons */}
         <div className="space-y-2">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#989898]">
             QUICK FILL
@@ -375,7 +402,7 @@ export function DealWorkbench({
           </div>
         )}
 
-        {/* Primary Financial & Scope Numbers */}
+        {/* Primary Financial Offer & Private Limit */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-white/[0.08]">
           <div className="space-y-1.5">
             <label
@@ -411,6 +438,41 @@ export function DealWorkbench({
 
           <div className="space-y-1.5">
             <label
+              htmlFor="deal-reservation"
+              className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]"
+            >
+              <span>
+                {activeRole === "developer"
+                  ? "Minimum you'd accept"
+                  : "Maximum you can pay"}{" "}
+                <span className="text-[#FF006D]">*</span>
+              </span>
+              <span className="font-victor text-[11px] text-[#A88FFF]">
+                {activeCurrency} · Private
+              </span>
+            </label>
+            <input
+              id="deal-reservation"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={reservationInput}
+              onChange={(e) => {
+                setReservationInput(e.target.value);
+                setActivePresetId(null);
+              }}
+              placeholder={activeRole === "developer" ? "e.g. 6500" : "e.g. 8500"}
+              className="dsq-recessed font-victor w-full rounded-xl px-4 py-3 text-xl font-semibold text-white placeholder:text-[#989898]/50 focus:outline-none focus:border-[#5661FF]"
+              required
+            />
+          </div>
+        </div>
+
+        {/* Scope Hours & Channel Fee */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+          <div className="space-y-1.5">
+            <label
               htmlFor="deal-hours"
               className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]"
             >
@@ -434,9 +496,35 @@ export function DealWorkbench({
                 setActivePresetId(null);
               }}
               placeholder="e.g. 120"
-              className="dsq-recessed font-victor w-full rounded-xl px-4 py-3 text-xl font-semibold text-white placeholder:text-[#989898]/50 focus:outline-none focus:border-[#5661FF]"
+              className="dsq-recessed font-victor w-full rounded-xl px-4 py-2.5 text-base font-semibold text-white placeholder:text-[#989898]/50 focus:outline-none focus:border-[#5661FF]"
               required
             />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]">
+              <span>Platform / escrow fee %</span>
+              <span className="font-victor text-white font-semibold">
+                {platformFeePct}%
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {PLATFORM_FEE_PRESETS.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => setPlatformFeePct(item.value)}
+                  className={`rounded-lg border py-2.5 px-1 text-[11px] font-medium transition-all cursor-pointer ${
+                    platformFeePct === item.value
+                      ? "border-[#5661FF] bg-[#161B3A] text-white"
+                      : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
+                  }`}
+                >
+                  {item.label}{" "}
+                  <span className="font-victor opacity-80">{item.value}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -501,8 +589,12 @@ export function DealWorkbench({
           </div>
         </div>
 
-        {/* Revisions Cap & Platform Fee % */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Revision Cap + Optional Private Target Rate (Developer) */}
+        <div
+          className={`grid grid-cols-1 gap-4 ${
+            activeRole === "developer" ? "sm:grid-cols-2 items-end" : ""
+          }`}
+        >
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]">
               <span>
@@ -532,94 +624,60 @@ export function DealWorkbench({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]">
-              <span>Platform / escrow fee %</span>
-              <span className="font-victor text-white font-semibold">
-                {platformFeePct}%
-              </span>
+          {activeRole === "developer" && (
+            <div className="space-y-1.5">
+              <label
+                htmlFor="role-benchmark"
+                className="block text-xs font-medium text-[#B4B8C8]"
+              >
+                Target hourly rate (private)
+              </label>
+              <input
+                id="role-benchmark"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={targetRateInput}
+                onChange={(e) => setTargetRateInput(e.target.value)}
+                className="dsq-recessed font-victor w-full rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:outline-none focus:border-[#5661FF]"
+              />
             </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {PLATFORM_FEE_PRESETS.map((item) => (
+          )}
+        </div>
+
+        {/* Toggle Flags */}
+        <div className="space-y-2 pt-4 border-t border-white/[0.08]">
+          <span className="block text-xs font-medium text-[#B4B8C8]">
+            {activeRole === "developer"
+              ? "Client risk flags (updates Live Risk Meter)"
+              : "Delivery priorities (updates Feasibility Score)"}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {flagOptions.map((flag) => {
+              const active = flags.includes(flag);
+              return (
                 <button
-                  key={item.label}
+                  key={flag}
                   type="button"
-                  onClick={() => setPlatformFeePct(item.value)}
-                  className={`rounded-lg border py-2 px-1 text-[11px] font-medium transition-all cursor-pointer ${
-                    platformFeePct === item.value
-                      ? "border-[#5661FF] bg-[#161B3A] text-white"
+                  onClick={() => toggleFlag(flag)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all cursor-pointer ${
+                    active
+                      ? activeRole === "developer"
+                        ? "border-[#FF006D] bg-[#2B1024] text-[#FF85B8]"
+                        : "border-[#5661FF] bg-[#161B3A] text-[#A88FFF]"
                       : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
                   }`}
                 >
-                  {item.label}{" "}
-                  <span className="font-victor opacity-80">{item.value}</span>
+                  {active && <Check className="w-3 h-3" />}
+                  <span>{flag}</span>
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Role-Specific Benchmark + Toggle Flags (Vetly style) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-white/[0.08]">
-          <div className="space-y-1.5">
-            <label
-              htmlFor="role-benchmark"
-              className="block text-xs font-medium text-[#B4B8C8]"
-            >
-              {activeRole === "developer"
-                ? "Target hourly rate (private)"
-                : "Max budget ceiling (private)"}
-            </label>
-            <input
-              id="role-benchmark"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={1}
-              value={
-                activeRole === "developer" ? targetRateInput : maxCeilingInput
-              }
-              onChange={(e) =>
-                activeRole === "developer"
-                  ? setTargetRateInput(e.target.value)
-                  : setMaxCeilingInput(e.target.value)
-              }
-              className="dsq-recessed font-victor w-full rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-[#5661FF]"
-            />
-          </div>
-
-          <div className="sm:col-span-2 space-y-2">
-            <span className="block text-xs font-medium text-[#B4B8C8]">
-              {activeRole === "developer"
-                ? "Client risk flags (updates Live Risk Meter)"
-                : "Delivery priorities (updates Feasibility Score)"}
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {flagOptions.map((flag) => {
-                const active = flags.includes(flag);
-                return (
-                  <button
-                    key={flag}
-                    type="button"
-                    onClick={() => toggleFlag(flag)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all cursor-pointer ${
-                      active
-                        ? activeRole === "developer"
-                          ? "border-[#FF006D] bg-[#2B1024] text-[#FF85B8]"
-                          : "border-[#5661FF] bg-[#161B3A] text-[#A88FFF]"
-                        : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
-                    }`}
-                  >
-                    {active && <Check className="w-3 h-3" />}
-                    <span>{flag}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Scope & Pricing Rationale */}
+        {/* Scope & Pricing Notes (Optional) */}
         <div className="space-y-2">
           <label
             htmlFor="deal-reason"
@@ -627,9 +685,8 @@ export function DealWorkbench({
           >
             <span>
               {activeRole === "developer"
-                ? "Technical scope & pricing rationale"
-                : "Budget & timeline context"}{" "}
-              <span className="text-[#FF006D]">*</span>
+                ? "Technical scope notes (optional)"
+                : "Budget & timeline context (optional)"}
             </span>
             <span className="font-victor text-[11px] text-[#989898]">
               {reason.length}/1200
@@ -646,11 +703,10 @@ export function DealWorkbench({
             }}
             placeholder={
               activeRole === "developer"
-                ? 'Example: "Includes full Next.js architecture, Auth, Stripe webhooks, QA testing, and Vercel deployment."'
-                : 'Example: "Seed sprint cap ahead of beta launch, with room for Phase 2 maintenance retainer."'
+                ? 'Optional: "Includes Next.js architecture, Auth, Stripe webhooks, QA, and deployment."'
+                : 'Optional: "Seed sprint budget ahead of beta launch."'
             }
             className="dsq-recessed w-full rounded-xl px-4 py-3 text-sm text-[#F1F1F1] placeholder:text-[#989898]/60 leading-relaxed focus:outline-none focus:border-[#5661FF] resize-y"
-            required
           />
         </div>
 
@@ -668,8 +724,8 @@ export function DealWorkbench({
             <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#A88FFF]" />
             <span>
               {mode === "create"
-                ? "All numbers stay encrypted & hidden until the counterparty submits their side."
-                : "Neither side can change terms after locking. Results reveal instantly."}
+                ? "Your quote and private limit stay hidden from the other side."
+                : "Private limits stay permanently hidden, even after reveal."}
             </span>
           </div>
 
@@ -701,7 +757,7 @@ export function DealWorkbench({
         </div>
       </form>
 
-      {/* RIGHT COLUMN (2fr): Real-time Vetly-style Live Economics / Risk / Cashflow Meter */}
+      {/* RIGHT COLUMN (2fr): Live Economics / Risk / Cashflow Meter */}
       <LiveDealAside
         role={activeRole}
         currency={activeCurrency}
@@ -712,7 +768,7 @@ export function DealWorkbench({
         revisions={revisions}
         platformFeePct={platformFeePct}
         targetHourlyRate={parsedTargetRate}
-        maxBudgetCeiling={parsedCeiling}
+        maxBudgetCeiling={parsedReservation}
         flags={flags}
       />
     </div>
