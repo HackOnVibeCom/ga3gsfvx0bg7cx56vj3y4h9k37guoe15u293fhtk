@@ -45,38 +45,35 @@ const PRESET_ICONS = {
   building: Building2,
 } as const;
 
+function parseOptionalInt(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.round(num));
+}
+
 export function DealWorkbench({
   mode,
   lockedRole = "developer",
   lockedProjectTitle = "",
   lockedCurrency = "USD",
-  initialFeeHint = 3,
   onSubmit,
 }: DealWorkbenchProps) {
   const [role, setRole] = useState<PartyRole>(lockedRole);
   const [projectTitle, setProjectTitle] = useState(
-    lockedProjectTitle || "SaaS MVP Build — Auth, Billing & Dashboard"
+    mode === "respond" ? lockedProjectTitle : ""
   );
   const [currency, setCurrency] = useState<CurrencyCode>(lockedCurrency);
 
-  const [budgetInput, setBudgetInput] = useState(
-    lockedRole === "client" ? "6200" : "8000"
-  );
-  const [reservationInput, setReservationInput] = useState(
-    lockedRole === "client" ? "8500" : "6500"
-  );
-  const [hoursInput, setHoursInput] = useState(
-    lockedRole === "client" ? "100" : "120"
-  );
-  const [depositPct, setDepositPct] = useState(
-    lockedRole === "client" ? 25 : 50
-  );
-  const [netDays, setNetDays] = useState(lockedRole === "client" ? 14 : 7);
-  const [revisions, setRevisions] = useState(lockedRole === "client" ? 3 : 2);
-  const [platformFeePct, setPlatformFeePct] = useState(
-    mode === "respond" ? initialFeeHint : 3
-  );
-  const [targetRateInput, setTargetRateInput] = useState("60");
+  const [budgetInput, setBudgetInput] = useState("");
+  const [reservationInput, setReservationInput] = useState("");
+  const [hoursInput, setHoursInput] = useState("");
+  const [depositPct, setDepositPct] = useState<number | null>(null);
+  const [netDays, setNetDays] = useState<number | null>(null);
+  const [revisions, setRevisions] = useState<number | null>(null);
+  const [platformFeePct, setPlatformFeePct] = useState<number | null>(null);
+  const [targetRateInput, setTargetRateInput] = useState("");
   const [flags, setFlags] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -102,9 +99,9 @@ export function DealWorkbench({
     setNetDays(p.netDays);
     setRevisions(p.revisions);
     setPlatformFeePct(p.platformFeePct);
-    if (p.targetHourlyRate !== undefined) {
-      setTargetRateInput(String(p.targetHourlyRate));
-    }
+    setTargetRateInput(
+      p.targetHourlyRate !== undefined ? String(p.targetHourlyRate) : ""
+    );
     setFlags(p.flags);
     setReason(p.reason);
     setError(null);
@@ -120,24 +117,7 @@ export function DealWorkbench({
       const matched = FREELANCE_PRESETS.find((p) => p.id === activePresetId);
       if (matched) {
         applyPreset(matched, nextRole);
-        return;
       }
-    }
-
-    if (nextRole === "developer") {
-      setBudgetInput("8000");
-      setReservationInput("6500");
-      setHoursInput("120");
-      setDepositPct(50);
-      setNetDays(7);
-      setRevisions(2);
-    } else {
-      setBudgetInput("6200");
-      setReservationInput("8500");
-      setHoursInput("100");
-      setDepositPct(25);
-      setNetDays(14);
-      setRevisions(3);
     }
   }
 
@@ -147,10 +127,10 @@ export function DealWorkbench({
     );
   }
 
-  const parsedBudget = Math.max(0, Math.round(Number(budgetInput) || 0));
-  const parsedReservation = Math.max(0, Math.round(Number(reservationInput) || 0));
-  const parsedHours = Math.max(0, Math.round(Number(hoursInput) || 0));
-  const parsedTargetRate = Math.max(0, Math.round(Number(targetRateInput) || 0));
+  const parsedBudget = parseOptionalInt(budgetInput);
+  const parsedReservation = parseOptionalInt(reservationInput);
+  const parsedHours = parseOptionalInt(hoursInput);
+  const parsedTargetRate = parseOptionalInt(targetRateInput);
 
   async function handleFormSubmit(e: FormEvent) {
     e.preventDefault();
@@ -161,12 +141,12 @@ export function DealWorkbench({
       return;
     }
 
-    if (parsedBudget < 1) {
+    if (parsedBudget === null || parsedBudget < 1) {
       setError("Please enter a project budget / quote greater than 0.");
       return;
     }
 
-    if (parsedReservation < 1) {
+    if (parsedReservation === null || parsedReservation < 1) {
       setError(
         activeRole === "developer"
           ? "Please enter the minimum amount you'd accept."
@@ -185,8 +165,28 @@ export function DealWorkbench({
       return;
     }
 
-    if (parsedHours < 1) {
+    if (parsedHours === null || parsedHours < 1) {
       setError("Please enter estimated scope hours greater than 0.");
+      return;
+    }
+
+    if (platformFeePct === null) {
+      setError("Please select a platform / escrow fee %.");
+      return;
+    }
+
+    if (depositPct === null) {
+      setError("Please select an upfront deposit %.");
+      return;
+    }
+
+    if (netDays === null) {
+      setError("Please select payment terms (Net days).");
+      return;
+    }
+
+    if (revisions === null) {
+      setError("Please select included revision rounds.");
       return;
     }
 
@@ -211,7 +211,9 @@ export function DealWorkbench({
           revisions,
           platformFeePct,
           targetHourlyRate:
-            activeRole === "developer" ? parsedTargetRate : undefined,
+            activeRole === "developer" && parsedTargetRate !== null
+              ? parsedTargetRate
+              : undefined,
           maxBudgetCeiling:
             activeRole === "client" ? parsedReservation : undefined,
           flags,
@@ -371,7 +373,7 @@ export function DealWorkbench({
                   setProjectTitle(e.target.value);
                   setActivePresetId(null);
                 }}
-                placeholder="e.g. Next.js SaaS MVP — Auth & Billing"
+                placeholder="Enter project title or scope summary"
                 className="dsq-recessed w-full rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-[#989898]/60 focus:outline-none focus:border-[#5661FF]"
                 required
               />
@@ -432,8 +434,12 @@ export function DealWorkbench({
                 setBudgetInput(e.target.value);
                 setActivePresetId(null);
               }}
-              placeholder="e.g. 8000"
-              className="dsq-recessed font-victor w-full rounded-xl px-4 py-3 text-xl font-semibold text-white placeholder:text-[#989898]/50 focus:outline-none focus:border-[#5661FF]"
+              placeholder={
+                activeRole === "developer"
+                  ? "Enter quote"
+                  : "Enter target budget"
+              }
+              className="dsq-recessed font-victor w-full rounded-xl px-4 py-3 text-xl font-semibold text-white placeholder:text-sm placeholder:font-sans placeholder:font-normal placeholder:text-[#989898]/55 focus:outline-none focus:border-[#5661FF]"
               required
             />
           </div>
@@ -464,8 +470,12 @@ export function DealWorkbench({
                 setReservationInput(e.target.value);
                 setActivePresetId(null);
               }}
-              placeholder={activeRole === "developer" ? "e.g. 6500" : "e.g. 8500"}
-              className="dsq-recessed font-victor w-full rounded-xl px-4 py-3 text-xl font-semibold text-white placeholder:text-[#989898]/50 focus:outline-none focus:border-[#5661FF]"
+              placeholder={
+                activeRole === "developer"
+                  ? "Enter minimum"
+                  : "Enter maximum"
+              }
+              className="dsq-recessed font-victor w-full rounded-xl px-4 py-3 text-xl font-semibold text-white placeholder:text-sm placeholder:font-sans placeholder:font-normal placeholder:text-[#989898]/55 focus:outline-none focus:border-[#5661FF]"
               required
             />
           </div>
@@ -497,8 +507,8 @@ export function DealWorkbench({
                 setHoursInput(e.target.value);
                 setActivePresetId(null);
               }}
-              placeholder="e.g. 120"
-              className="dsq-recessed font-victor w-full rounded-xl px-4 py-2.5 text-base font-semibold text-white placeholder:text-[#989898]/50 focus:outline-none focus:border-[#5661FF]"
+              placeholder="Enter hours"
+              className="dsq-recessed font-victor w-full rounded-xl px-4 py-2.5 text-base font-semibold text-white placeholder:text-sm placeholder:font-sans placeholder:font-normal placeholder:text-[#989898]/55 focus:outline-none focus:border-[#5661FF]"
               required
             />
           </div>
@@ -507,7 +517,7 @@ export function DealWorkbench({
             <div className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]">
               <span>Platform / escrow fee %</span>
               <span className="font-victor text-white font-semibold">
-                {platformFeePct}%
+                {platformFeePct !== null ? `${platformFeePct}%` : "--"}
               </span>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
@@ -515,7 +525,10 @@ export function DealWorkbench({
                 <button
                   key={item.label}
                   type="button"
-                  onClick={() => setPlatformFeePct(item.value)}
+                  onClick={() => {
+                    setPlatformFeePct(item.value);
+                    setError(null);
+                  }}
                   className={`rounded-lg border py-2.5 px-1 text-[11px] font-medium transition-all cursor-pointer ${
                     platformFeePct === item.value
                       ? "border-[#5661FF] bg-[#161B3A] text-white"
@@ -540,7 +553,7 @@ export function DealWorkbench({
                   : "Preferred upfront deposit %"}
               </span>
               <span className="font-victor text-white font-semibold">
-                {depositPct}%
+                {depositPct !== null ? `${depositPct}%` : "--"}
               </span>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
@@ -548,7 +561,10 @@ export function DealWorkbench({
                 <button
                   key={val}
                   type="button"
-                  onClick={() => setDepositPct(val)}
+                  onClick={() => {
+                    setDepositPct(val);
+                    setError(null);
+                  }}
                   className={`font-victor rounded-lg border py-2 text-xs font-semibold transition-all cursor-pointer ${
                     depositPct === val
                       ? "border-[#5661FF] bg-[#161B3A] text-white"
@@ -569,7 +585,7 @@ export function DealWorkbench({
                   : "Invoice cycle (Net days)"}
               </span>
               <span className="font-victor text-white font-semibold">
-                Net {netDays}
+                {netDays !== null ? `Net ${netDays}` : "--"}
               </span>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
@@ -577,7 +593,10 @@ export function DealWorkbench({
                 <button
                   key={val}
                   type="button"
-                  onClick={() => setNetDays(val)}
+                  onClick={() => {
+                    setNetDays(val);
+                    setError(null);
+                  }}
                   className={`font-victor rounded-lg border py-2 text-xs font-semibold transition-all cursor-pointer ${
                     netDays === val
                       ? "border-[#5661FF] bg-[#161B3A] text-white"
@@ -600,7 +619,9 @@ export function DealWorkbench({
                 : "Expected revision rounds"}
             </span>
             <span className="font-victor text-white font-semibold">
-              {revisions} {revisions === 1 ? "round" : "rounds"}
+              {revisions !== null
+                ? `${revisions} ${revisions === 1 ? "round" : "rounds"}`
+                : "--"}
             </span>
           </div>
           <div className="grid grid-cols-5 gap-1.5">
@@ -608,7 +629,10 @@ export function DealWorkbench({
               <button
                 key={val}
                 type="button"
-                onClick={() => setRevisions(val)}
+                onClick={() => {
+                  setRevisions(val);
+                  setError(null);
+                }}
                 className={`font-victor rounded-lg border py-2 text-xs font-semibold transition-all cursor-pointer ${
                   revisions === val
                     ? "border-[#5661FF] bg-[#161B3A] text-white"
@@ -676,7 +700,8 @@ export function DealWorkbench({
                       step={1}
                       value={targetRateInput}
                       onChange={(e) => setTargetRateInput(e.target.value)}
-                      className="dsq-recessed font-victor w-full sm:max-w-xs rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:outline-none focus:border-[#5661FF]"
+                      placeholder="Optional hourly rate"
+                      className="dsq-recessed font-victor w-full sm:max-w-xs rounded-xl px-3.5 py-2 text-sm font-semibold text-white placeholder:text-xs placeholder:font-sans placeholder:font-normal placeholder:text-[#989898]/55 focus:outline-none focus:border-[#5661FF]"
                     />
                   </div>
                 )}
@@ -738,8 +763,8 @@ export function DealWorkbench({
                     }}
                     placeholder={
                       activeRole === "developer"
-                        ? 'Optional: "Includes Next.js architecture, Auth, Stripe webhooks, QA, and deployment."'
-                        : 'Optional: "Seed sprint budget ahead of beta launch."'
+                        ? "Add technical scope notes (optional)"
+                        : "Add budget & timeline notes (optional)"
                     }
                     className="dsq-recessed w-full rounded-xl px-4 py-3 text-sm text-[#F1F1F1] placeholder:text-[#989898]/60 leading-relaxed focus:outline-none focus:border-[#5661FF] resize-y"
                   />
