@@ -165,7 +165,6 @@ MidPoint combines a **Zero-CAC viral acquisition engine** with high-margin B2B/F
 | **1. Core Blind Mediation (Free Forever)** | Individual Freelancers & Clients | Unlimited double-blind sessions, 5-parameter mediation, dynamic risk scoring, SOW draft, and watermarked PDF export | **$0 / month** (Viral Zero-CAC acquisition funnel) |
 | **2. MidPoint Pro Workspace** | Full-Time Freelancers, Studios & Agencies | Up to 3 blind re-mediation rounds on No-Overlap deals, custom branding on PDF SOW exports (no watermark), reusable clause templates, and 10 team seats | **$19 / month** (Early Access, $29 anchor) |
 | **3. Unlimited & API (B2B)** | Freelance Marketplaces, Dev Shops & Procurement Teams | Unlimited re-mediation rounds, unlimited seats, embeddable `"Settle with MidPoint"` widget, and REST API | **$99 / month** (B2B Beta, $149 anchor) |
-| **4. Embedded Milestone Escrow** | Settled Mediated Deals (`hasZopa = true`) | Optional milestone escrow funding directly from the settled verdict card | **0.5% - 1.5% flat settlement fee** (vs. 10%-20% on traditional marketplaces) |
 
 ### Why Investors Back This Model
 - **Zero-CAC Acquisition:** Traditional freelance platforms spend heavily on paid ads to acquire both sides of the marketplace. MidPoint acquires counterparties organically at **$0 CAC** whenever one party sends a mediation link.
