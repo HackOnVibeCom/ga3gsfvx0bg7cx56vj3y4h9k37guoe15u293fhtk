@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
+  checkRateLimit,
   getNegotiationRecord,
+  getRequestIp,
   oppositeRole,
   submitCounterpartyResponse,
 } from "@/lib/store";
@@ -11,6 +13,17 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const ip = getRequestIp(request);
+    if (!checkRateLimit(`respond:${ip}`, 15, 60_000)) {
+      return NextResponse.json(
+        {
+          error:
+            "Too many submissions from this address. Please wait a minute and try again.",
+        },
+        { status: 429 }
+      );
+    }
+
     const { id } = await context.params;
     const body = (await request.json()) as Record<string, unknown>;
 

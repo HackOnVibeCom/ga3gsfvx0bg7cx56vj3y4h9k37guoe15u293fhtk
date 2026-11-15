@@ -98,6 +98,7 @@ const DRAFT_RATE_LIMIT_WINDOW_MS = 60_000;
 
 function getDraftSecret(): string {
   return (
+    process.env.DRAFT_TOKEN_SECRET?.trim() ||
     process.env.DEEPSEEK_API_KEY?.trim() ||
     process.env.DATABASE_URL?.trim() ||
     "midpoint-local-draft-secret"
@@ -117,22 +118,45 @@ function tokensEqual(a: string | null | undefined, b: string): boolean {
   return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-function allowDraftGeneration(id: string): boolean {
+export function checkRateLimit(
+  key: string,
+  maxRequests: number,
+  windowMs: number
+): boolean {
   if (!globalForStore.__midpointDraftRateLimit) {
     globalForStore.__midpointDraftRateLimit = new Map<string, number[]>();
   }
   const now = Date.now();
-  const windowStart = now - DRAFT_RATE_LIMIT_WINDOW_MS;
-  const existing = (globalForStore.__midpointDraftRateLimit.get(id) ?? []).filter(
+  const windowStart = now - windowMs;
+  const existing = (globalForStore.__midpointDraftRateLimit.get(key) ?? []).filter(
     (ts) => ts > windowStart
   );
-  if (existing.length >= DRAFT_RATE_LIMIT_MAX) {
-    globalForStore.__midpointDraftRateLimit.set(id, existing);
+  if (existing.length >= maxRequests) {
+    globalForStore.__midpointDraftRateLimit.set(key, existing);
     return false;
   }
   existing.push(now);
-  globalForStore.__midpointDraftRateLimit.set(id, existing);
+  globalForStore.__midpointDraftRateLimit.set(key, existing);
   return true;
+}
+
+export function getRequestIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  return "local";
+}
+
+function allowDraftGeneration(id: string): boolean {
+  return checkRateLimit(
+    `draft:${id}`,
+    DRAFT_RATE_LIMIT_MAX,
+    DRAFT_RATE_LIMIT_WINDOW_MS
+  );
 }
 
 function sanitizeSummaryForViewer(

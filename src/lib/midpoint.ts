@@ -178,10 +178,10 @@ function classifyGapConfidence(gapPct: number): ConfidenceTier {
 
 /**
  * Multi-Attribute Contractual Risk & Cashflow Utility Adjustment
- * (Keeney & Raiffa 1976; Kalai-Smorodinsky 1975)
+ * (Keeney & Raiffa 1976; Kalai & Smorodinsky 1975)
  *
- * Computes a bounded adjustment in [-0.20, +0.20] around the strategy-proof
- * Chatterjee-Samuelson symmetric double-auction baseline (k = 0.5), alongside
+ * Computes a bounded adjustment in [-0.20, +0.20] around the symmetric
+ * split-the-difference baseline (Chatterjee & Samuelson 1983, k = 0.5), alongside
  * itemized human-readable factors for transparent UI/PDF inspection.
  */
 export function computeContractualTermAdjustmentDetailed(
@@ -282,7 +282,17 @@ export function computeContractualTermAdjustment(
 }
 
 /**
- * Strategy-Proof Chatterjee-Samuelson (k = 0.5) & Risk-Adjusted ZOPA Engine
+ * Double-Blind Gate-and-Clamp Mediation Engine (Option B)
+ * (Chatterjee & Samuelson 1983 k = 0.5 baseline; Myerson & Satterthwaite 1983;
+ *  Keeney & Raiffa 1976 multi-attribute contractual adjustment)
+ *
+ * 1. Base settlement P_raw is computed from the public quotes
+ *    [publicLow, publicHigh] weighted by w = 0.5 + termAdjustment.
+ * 2. Private walk-away reservations (devMin, clientMax) define the Individual
+ *    Rationality feasibility gate [lo, hi] and clamp P_raw into [lo, hi].
+ * 3. For all interior settlements (lo <= P_raw <= hi), P_settled depends exclusively
+ *    on public quotes and contractual terms, preventing algebraic inversion of
+ *    private walk-away limits.
  */
 export function computeZOPA(
   devOffer: number,
@@ -302,7 +312,7 @@ export function computeZOPA(
   const clientMax = Math.max(cleanClientOffer, cleanClientRes);
   const publicOfferGap = Math.round(Math.abs(cleanDevOffer - cleanClientOffer));
 
-  // Individual Rationality feasibility: Developer minimum cannot exceed Client maximum
+  // 1. Individual Rationality feasibility gate
   if (devMin > clientMax) {
     return {
       hasZopa: false,
@@ -314,8 +324,6 @@ export function computeZOPA(
     };
   }
 
-  // Standard overlap when Client public offer <= Developer public ask,
-  // OR immediate surplus interval [devOffer, clientOffer] when Client offered above Developer's ask.
   const lo =
     cleanClientOffer > cleanDevOffer
       ? Math.max(devMin, cleanDevOffer)
@@ -336,11 +344,19 @@ export function computeZOPA(
     };
   }
 
+  // 2. Public-quote candidate settlement weighted by contractual risk/cashflow adjustment
+  const publicLow = Math.min(cleanDevOffer, cleanClientOffer);
+  const publicHigh = Math.max(cleanDevOffer, cleanClientOffer);
   const boundedAdjustment = clampNumber(termAdjustment, -0.2, 0.2);
   const weightTowardDev = Number(
     clampNumber(0.5 + boundedAdjustment, 0.3, 0.7).toFixed(4)
   );
-  const settlement = Math.round(lo + weightTowardDev * (hi - lo));
+  const rawPublicSettlement = Math.round(
+    publicLow + weightTowardDev * (publicHigh - publicLow)
+  );
+
+  // 3. Clamp public-quote candidate settlement to the feasible reservation bounds [lo, hi]
+  const settlement = Math.round(clampNumber(rawPublicSettlement, lo, hi));
 
   return {
     hasZopa: true,

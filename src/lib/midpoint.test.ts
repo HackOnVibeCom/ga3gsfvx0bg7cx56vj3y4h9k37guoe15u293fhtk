@@ -5,6 +5,10 @@ import {
   computeFreelanceMediation,
   computeFreelanceMediationWithBounds,
   computePaymentRisk,
+  computeClientFeasibility,
+  computeEffectiveHourlyRate,
+  computePartyEconomics,
+  computeBridgeOptions,
   computeZOPA,
   computeContractualTermAdjustment,
   formatCurrency,
@@ -12,33 +16,38 @@ import {
   type PartyTerms,
 } from "./midpoint.ts";
 
-describe("computeZOPA (Chatterjee-Samuelson k=0.5 & Risk-Adjusted Mechanism)", () => {
-  it("computes strategy-proof symmetric k=0.5 baseline when termAdjustment is 0", () => {
+describe("computeZOPA (Gate-and-Clamp Public-Quote Split & Private Reservation Gate)", () => {
+  it("computes public-quote k=0.5 baseline, clamps extreme bluffs, and prevents interior limit leakage", () => {
     const res1 = computeZOPA(20000000, 15000000, 12000000, 16000000, 0);
     assert.equal(res1.hasZopa, true);
     assert.equal(res1.zopaLow, 15000000);
     assert.equal(res1.zopaHigh, 16000000);
     assert.equal(res1.weightTowardDev, 0.5);
-    assert.equal(res1.settlement, 15500000);
+    assert.equal(res1.settlement, 16000000);
 
-    // Proof of immunity to cheap-talk bluffing:
-    // Even if Developer bluffs with a 100,000,000 public offer (while keeping 15,000,000 reservation),
-    // the settlement does NOT shift toward Developer!
+    // Zero-leakage proof on interior deals: varying private reservations (e.g., 6500..7000 and 7100..8000)
+    // never changes the settlement price (7000), preventing algebraic inversion of private limits.
+    const interiorA = computeZOPA(8000, 7000, 6000, 7500, 0);
+    const interiorB = computeZOPA(8000, 6500, 6000, 7900, 0);
+    assert.equal(interiorA.settlement, 7000);
+    assert.equal(interiorB.settlement, 7000);
+
+    // Extreme public bluffing is capped by the counterparty's private reservation clamp:
     const bluffRes = computeZOPA(100000000, 15000000, 12000000, 16000000, 0);
     assert.equal(bluffRes.settlement, res1.settlement);
   });
 
-  it("shifts settlement inside [zopaLow, zopaHigh] based on contractual risk/cashflow concessions", () => {
+  it("shifts settlement inside [publicLow, publicHigh] (clamped to [zopaLow, zopaHigh]) based on contractual concessions", () => {
     const devPremium = computeZOPA(8000, 6500, 6000, 7500, 0.12);
     assert.equal(devPremium.hasZopa, true);
     assert.equal(devPremium.weightTowardDev, 0.62);
-    assert.equal(devPremium.settlement, Math.round(6500 + 0.62 * (7500 - 6500)));
+    assert.equal(devPremium.settlement, Math.round(6000 + 0.62 * (8000 - 6000)));
 
     const clientDiscount = computeZOPA(8000, 6500, 6000, 7500, -0.09);
     assert.equal(clientDiscount.weightTowardDev, 0.41);
     assert.equal(
       clientDiscount.settlement,
-      Math.round(6500 + 0.41 * (7500 - 6500))
+      Math.round(6000 + 0.41 * (8000 - 6000))
     );
   });
 
@@ -298,5 +307,73 @@ describe("formatCurrency & formatMoney", () => {
   it("formats USD and IDR cleanly", () => {
     assert.equal(formatCurrency(7400), "$7,400");
     assert.ok(formatMoney(15444444, "IDR").includes("Rp"));
+  });
+});
+
+describe("Smoke Suite: Economics, Client Feasibility & Exact-Match Edge Cases", () => {
+  it("computes effective hourly rate and net party economics accurately", () => {
+    const rate = computeEffectiveHourlyRate({
+      budget: 10000,
+      hours: 100,
+      revisions: 4,
+      platformFeePct: 10,
+    });
+    assert.equal(rate.netBudget, 9000);
+    assert.equal(rate.revisionBufferPct, 10);
+    assert.equal(rate.adjustedHours, 120);
+    assert.equal(rate.effectiveRate, 75);
+
+    const econ = computePartyEconomics(10000, 100, 50, 10, 60, 4);
+    assert.equal(econ.upfrontAmount, 5000);
+    assert.equal(econ.completionAmount, 5000);
+    assert.equal(econ.targetDeltaPct, 25);
+  });
+
+  it("evaluates client feasibility tiers and ceiling headroom", () => {
+    const strong = computeClientFeasibility({
+      budget: 7000,
+      maxBudgetCeiling: 9000,
+      hours: 100,
+      depositPct: 25,
+      netDays: 14,
+      revisions: 2,
+      flags: [],
+    });
+    assert.equal(strong.upfrontOutlay, 1750);
+    assert.equal(strong.completionBalance, 5250);
+    assert.equal(strong.tier, "STRONG FIT");
+  });
+
+  it("handles exact budget match (zero spread) without division-by-zero errors", () => {
+    const dev: PartyTerms = {
+      budget: 7500,
+      reservation: 7000,
+      hours: 100,
+      depositPct: 50,
+      netDays: 7,
+      revisions: 2,
+      platformFeePct: 5,
+      flags: [],
+    };
+    const client: PartyTerms = {
+      budget: 7500,
+      reservation: 8000,
+      hours: 100,
+      depositPct: 50,
+      netDays: 7,
+      revisions: 2,
+      platformFeePct: 5,
+      flags: [],
+    };
+    const summary = computeFreelanceMediation(dev, client, "USD");
+    assert.equal(summary.hasZopa, true);
+    assert.equal(summary.settlement, 7500);
+    assert.equal(summary.budget.gap, 0);
+    assert.equal(summary.budget.gapPct, 0);
+    assert.equal(summary.confidence, "close");
+
+    const bridge = computeBridgeOptions(dev, client, 100, 50, 7, 2, 0, "USD");
+    assert.equal(bridge.publicGap, 0);
+    assert.equal(bridge.recommendedBudget, 7500);
   });
 });

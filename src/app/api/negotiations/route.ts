@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createNegotiation } from "@/lib/store";
+import { checkRateLimit, createNegotiation, getRequestIp } from "@/lib/store";
 import {
   parseCurrency,
   parseDealPositionPayload,
@@ -8,6 +8,17 @@ import {
 
 export async function POST(request: Request) {
   try {
+    const ip = getRequestIp(request);
+    if (!checkRateLimit(`create:${ip}`, 20, 60_000)) {
+      return NextResponse.json(
+        {
+          error:
+            "Too many mediation sessions created. Please wait a minute and try again.",
+        },
+        { status: 429 }
+      );
+    }
+
     const body = (await request.json()) as Record<string, unknown>;
     const creatorRole = parseRole(body.creatorRole);
     if (!creatorRole) {
