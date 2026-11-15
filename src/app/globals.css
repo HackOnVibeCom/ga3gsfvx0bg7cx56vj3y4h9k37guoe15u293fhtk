@@ -159,18 +159,49 @@
 }
 
 .btn-dsq-nav {
+  position: relative;
+  overflow: hidden;
+  border: 0;
+  outline: none;
   border-radius: 100px;
-  border: 1px solid transparent;
   background: #FFFFFF;
   color: #07090D;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.22, 0.8, 0.35, 1),
+    box-shadow 0.25s cubic-bezier(0.22, 0.8, 0.35, 1),
+    opacity 0.2s ease;
+}
+
+.btn-dsq-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 20%,
+    rgba(86, 97, 255, 0.25) 50%,
+    transparent 80%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.6s cubic-bezier(0.22, 0.8, 0.35, 1);
+  pointer-events: none;
+}
+
+.btn-dsq-nav:focus {
+  outline: none;
+}
+
+.btn-dsq-nav:focus-visible {
+  outline: 2px solid #5661FF;
+  outline-offset: 2px;
 }
 
 .btn-dsq-nav:hover {
-  background: #5661FF;
-  border-color: #5661FF;
-  color: #FFFFFF;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 18px 44px -12px rgba(255, 255, 255, 0.45);
+}
+
+.btn-dsq-nav:hover::before {
+  transform: translateX(120%);
 }
 
 /* Atmospheric orbs slow drift */

@@ -135,6 +135,7 @@ export function ResultPanel({ data }: ResultPanelProps) {
 
   const [notesOpen, setNotesOpen] = useState(false);
   const [mathOpen, setMathOpen] = useState(false);
+  const [bridgeOptionsOpen, setBridgeOptionsOpen] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [origin, setOrigin] = useState("");
@@ -146,10 +147,23 @@ export function ResultPanel({ data }: ResultPanelProps) {
   const [draftingAi, setDraftingAi] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftGeneratedOnce, setDraftGeneratedOnce] = useState(false);
+  const [dealAccepted, setDealAccepted] = useState(false);
 
   const activeViewerRole: PartyRole | null = viewerRole ?? storedRole;
-  const canGenerateAiDraft = Boolean(storedDraftToken || activeViewerRole);
+  const canGenerateAiDraft = Boolean(storedDraftToken);
   const shareUrl = origin ? `${origin}/r/${data.id}` : `/r/${data.id}`;
+
+  async function handleAcceptDeal() {
+    setDealAccepted(true);
+    try {
+      window.localStorage.setItem(`midpoint_accepted_${data.id}`, "1");
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(draftText);
+      }
+    } catch {
+      // Ignore clipboard or storage errors
+    }
+  }
 
   async function handleDownloadPdf() {
     if (exportingPdf) return;
@@ -241,6 +255,10 @@ export function ResultPanel({ data }: ResultPanelProps) {
         if (saved === "developer" || saved === "client") {
           setStoredRole(saved);
         }
+      }
+
+      if (window.localStorage.getItem(`midpoint_accepted_${data.id}`) === "1") {
+        setDealAccepted(true);
       }
     } catch {
       // Ignore storage errors
@@ -492,35 +510,35 @@ ${verdictText}`;
                 <CopyButton text={summaryClipboard} label="Copy result" />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                {hasOverlap && settledBudget !== null && mediatedEcon !== null ? (
-                  <>
-                    <div>
-                      <p className="text-xs text-[#B4B8C8]">
-                        Fair Mediated Budget
-                      </p>
-                      <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-white font-victor mt-1">
-                        {formatMoney(settledBudget, currency)}
-                      </div>
+              {hasOverlap && settledBudget !== null && mediatedEcon !== null ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+                  <div>
+                    <p className="text-xs text-[#B4B8C8]">
+                      Fair Mediated Budget
+                    </p>
+                    <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-white font-victor mt-1">
+                      {formatMoney(settledBudget, currency)}
                     </div>
+                  </div>
 
-                    <div className="sm:text-right">
-                      <p className="text-xs text-[#989898]">
-                        Mediated Effective Rate (Net)
-                      </p>
-                      <div className="text-2xl sm:text-3xl font-semibold text-[#F1F1F1] font-victor mt-0.5">
-                        {formatMoney(mediatedEcon.effectiveRate, currency, 2)}
-                        <span className="text-sm font-normal text-[#989898]">
-                          /hr
-                        </span>
-                      </div>
+                  <div className="sm:text-right">
+                    <p className="text-xs text-[#989898]">
+                      Mediated Effective Rate (Net)
+                    </p>
+                    <div className="text-2xl sm:text-3xl font-semibold text-[#F1F1F1] font-victor mt-0.5">
+                      {formatMoney(mediatedEcon.effectiveRate, currency, 2)}
+                      <span className="text-sm font-normal text-[#989898]">
+                        /hr
+                      </span>
                     </div>
-                  </>
-                ) : (
-                  <>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                     <div>
                       <p className="text-xs text-[#B4B8C8]">
-                        Public Offer Spread ({formatMoney(client.budget, currency)} vs {formatMoney(developer.budget, currency)})
+                        Public Offer Spread
                       </p>
                       <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-white font-victor mt-1">
                         {formatMoney(publicGap, currency)}
@@ -529,22 +547,49 @@ ${verdictText}`;
 
                     <div className="sm:text-right">
                       <p className="text-xs text-[#989898]">
-                        Recommended Bridge Target
+                        Submitted Quotes
                       </p>
-                      <div className="text-xl sm:text-2xl font-semibold text-[#F1F1F1] font-victor mt-0.5">
-                        ~{formatMoney(recommendedBudget, currency)}{" "}
-                        <span className="text-sm font-normal text-[#989898]">
-                          or cap at
+                      <div className="text-lg sm:text-xl font-semibold text-[#F1F1F1] font-victor mt-1">
+                        {formatMoney(lowVal, currency)}{" "}
+                        <span className="text-xs font-normal text-[#989898]">
+                          vs
                         </span>{" "}
-                        {recommendedHours} hrs
+                        {formatMoney(highVal, currency)}
                       </div>
-                      <p className="text-[11px] text-[#FF85B8] mt-1">
-                        Ask for {formatMoney(recommendedBudget, currency)} ({summary.hours.midpoint}h) or cap {formatMoney(client.budget, currency)} at {recommendedHours}h
-                      </p>
                     </div>
-                  </>
-                )}
-              </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-white/10 bg-[#090B10]/55 px-4 py-3">
+                      <span className="block text-[11px] font-medium text-[#989898]">
+                        Path 1 · Full-Scope Target
+                      </span>
+                      <div className="flex items-baseline justify-between gap-2 mt-1">
+                        <span className="text-lg font-semibold text-white font-victor">
+                          ~{formatMoney(recommendedBudget, currency)}
+                        </span>
+                        <span className="text-xs text-[#B4B8C8] font-victor whitespace-nowrap">
+                          {summary.hours.midpoint} hrs scope
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-[#090B10]/55 px-4 py-3">
+                      <span className="block text-[11px] font-medium text-[#989898]">
+                        Path 2 · Budget-Capped MVP
+                      </span>
+                      <div className="flex items-baseline justify-between gap-2 mt-1">
+                        <span className="text-lg font-semibold text-white font-victor">
+                          {recommendedHours} hrs
+                        </span>
+                        <span className="text-xs text-[#B4B8C8] font-victor whitespace-nowrap">
+                          at {formatMoney(client.budget, currency)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <p className="text-sm sm:text-[15px] text-[#F1F1F1]/90 leading-relaxed">
                 {verdictText}
@@ -910,19 +955,23 @@ ${verdictText}`;
           {/* Dynamic Context-Aware Action Plan Card */}
           <section className="dsq-card p-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span
-                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
-                  actionPlan.tone === "ready"
-                    ? "border-[#39D98A]/35 bg-[#39D98A]/15 text-[#39D98A]"
-                    : actionPlan.tone === "conditional"
-                    ? "border-[#FFB800]/35 bg-[#FFB800]/15 text-[#FFB800]"
-                    : actionPlan.tone === "high_risk"
-                    ? "border-[#FF006D]/40 bg-[#FF006D]/15 text-[#FF006D]"
-                    : "border-[#5661FF]/45 bg-[#5661FF]/15 text-[#8C94FF]"
-                }`}
-              >
-                {actionPlan.badge}
-              </span>
+              {actionPlan.tone === "bridge" ? (
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#B4B8C8]">
+                  {actionPlan.badge}
+                </span>
+              ) : (
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                    actionPlan.tone === "ready"
+                      ? "border-[#39D98A]/35 bg-[#39D98A]/15 text-[#39D98A]"
+                      : actionPlan.tone === "conditional"
+                      ? "border-[#FFB800]/35 bg-[#FFB800]/15 text-[#FFB800]"
+                      : "border-[#FF006D]/40 bg-[#FF006D]/15 text-[#FF006D]"
+                  }`}
+                >
+                  {actionPlan.badge}
+                </span>
+              )}
               <span className="text-[11px] font-victor text-[#989898]">
                 {hasOverlap
                   ? `Risk ${summary.mediatedRisk.score}/100`
@@ -939,33 +988,74 @@ ${verdictText}`;
               </p>
             </div>
 
-            <ul className="space-y-3 pt-1">
-              {actionPlan.items.map((item, idx) => (
-                <li
-                  key={item}
-                  className="flex items-start gap-2.5 text-xs sm:text-sm text-[#F1F1F1]/90 leading-relaxed"
-                >
-                  <span
-                    className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center shrink-0 text-[10px] font-bold font-victor ${
-                      actionPlan.tone === "ready"
-                        ? "border-[#39D98A]/45 bg-[#39D98A]/12 text-[#39D98A]"
-                        : actionPlan.tone === "conditional"
-                        ? "border-[#FFB800]/45 bg-[#FFB800]/12 text-[#FFB800]"
-                        : actionPlan.tone === "high_risk"
-                        ? "border-[#FF006D]/45 bg-[#FF006D]/12 text-[#FF006D]"
-                        : "border-[#5661FF]/45 bg-[#5661FF]/15 text-[#8C94FF]"
-                    }`}
+            {actionPlan.tone === "bridge" ? (
+              <DisclosureAccordion
+                label={
+                  bridgeOptionsOpen
+                    ? `Hide ${actionPlan.items.length} ways to bridge this gap`
+                    : `Show ${actionPlan.items.length} ways to bridge this gap`
+                }
+                open={bridgeOptionsOpen}
+                onToggle={() => setBridgeOptionsOpen((prev) => !prev)}
+              >
+                <ul className="space-y-3">
+                  {actionPlan.items.map((item, idx) => (
+                    <li
+                      key={item}
+                      className="flex items-start gap-2.5 text-xs sm:text-sm text-[#F1F1F1]/90 leading-relaxed"
+                    >
+                      <span className="mt-0.5 w-5 h-5 rounded-full border border-[#5661FF]/45 bg-[#5661FF]/15 text-[#8C94FF] flex items-center justify-center shrink-0 text-[10px] font-bold font-victor">
+                        {idx + 1}
+                      </span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </DisclosureAccordion>
+            ) : (
+              <ul className="space-y-3 pt-1">
+                {actionPlan.items.map((item) => (
+                  <li
+                    key={item}
+                    className="flex items-start gap-2.5 text-xs sm:text-sm text-[#F1F1F1]/90 leading-relaxed"
                   >
-                    {actionPlan.tone === "bridge" ? (
-                      idx + 1
-                    ) : (
+                    <span
+                      className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center shrink-0 text-[10px] font-bold font-victor ${
+                        actionPlan.tone === "ready"
+                          ? "border-[#39D98A]/45 bg-[#39D98A]/12 text-[#39D98A]"
+                          : actionPlan.tone === "conditional"
+                          ? "border-[#FFB800]/45 bg-[#FFB800]/12 text-[#FFB800]"
+                          : "border-[#FF006D]/45 bg-[#FF006D]/12 text-[#FF006D]"
+                      }`}
+                    >
                       <Check className="w-3 h-3" />
-                    )}
+                    </span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {hasOverlap && (
+              <div className="pt-2 border-t border-white/[0.07]">
+                <button
+                  type="button"
+                  onClick={() => void handleAcceptDeal()}
+                  className={`w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                    dealAccepted
+                      ? "border border-[#39D98A]/50 bg-[#39D98A]/15 text-[#39D98A]"
+                      : "btn-dsq-primary"
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    {dealAccepted
+                      ? "Deal Accepted · SOW Copied to Clipboard"
+                      : "Accept Mediated Deal & Copy SOW"}
                   </span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
+                </button>
+              </div>
+            )}
           </section>
 
           {/* Ready-to-Send SOW / Follow-Up Draft */}

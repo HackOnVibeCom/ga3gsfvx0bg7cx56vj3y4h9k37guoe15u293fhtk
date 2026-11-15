@@ -1,14 +1,62 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { AlertCircle, Plus } from "lucide-react";
 import { Header } from "@/components/Header";
 import { SessionView } from "@/components/SessionView";
-import { getNegotiationRecord, toPublicView } from "@/lib/store";
+import { getNegotiationRecord, oppositeRole, toPublicView } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 interface SessionPageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ t?: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: SessionPageProps): Promise<Metadata> {
+  const { id } = await params;
+  const record = await getNegotiationRecord(id);
+
+  if (!record) {
+    return {
+      title: "Mediation Session Not Found | MidPoint",
+      description:
+        "Start a blind two-party freelance deal mediation in seconds on MidPoint.",
+    };
+  }
+
+  const creatorLabel =
+    record.creatorRole === "developer" ? "Freelance Developer" : "Client";
+  const responderLabel =
+    oppositeRole(record.creatorRole) === "developer"
+      ? "Freelance Developer"
+      : "Client";
+  const isRevealed = record.positionB !== null;
+
+  const title = isRevealed
+    ? `Mediation Verdict: ${record.projectTitle} | MidPoint`
+    : `Blind Deal Invitation: ${record.projectTitle} | MidPoint`;
+
+  const description = isRevealed
+    ? `Two-party blind deal mediation completed (${record.currency}). View the mediated settlement, risk breakdown, and ready-to-send SOW draft.`
+    : `The ${creatorLabel} locked their terms (${record.currency}). Enter your ${responderLabel} position blindly to compute a fair midpoint with zero anchoring.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      siteName: "MidPoint",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
 }
 
 export default async function SessionPage({

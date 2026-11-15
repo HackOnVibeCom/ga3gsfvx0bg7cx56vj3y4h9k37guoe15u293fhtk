@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Building2,
   Check,
+  ChevronDown,
   Code2,
   Loader2,
   Lock,
@@ -79,6 +80,7 @@ export function DealWorkbench({
   const [flags, setFlags] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -589,125 +591,162 @@ export function DealWorkbench({
           </div>
         </div>
 
-        {/* Revision Cap + Optional Private Target Rate (Developer) */}
-        <div
-          className={`grid grid-cols-1 gap-4 ${
-            activeRole === "developer" ? "sm:grid-cols-2 items-end" : ""
-          }`}
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]">
-              <span>
-                {activeRole === "developer"
-                  ? "Included revision rounds"
-                  : "Expected revision rounds"}
-              </span>
-              <span className="font-victor text-white font-semibold">
-                {revisions} {revisions === 1 ? "round" : "rounds"}
-              </span>
-            </div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {revisionOptions.map((val) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setRevisions(val)}
-                  className={`font-victor rounded-lg border py-2 text-xs font-semibold transition-all cursor-pointer ${
-                    revisions === val
-                      ? "border-[#5661FF] bg-[#161B3A] text-white"
-                      : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
-                  }`}
-                >
-                  {val === 5 ? "5+" : val}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {activeRole === "developer" && (
-            <div className="space-y-1.5">
-              <label
-                htmlFor="role-benchmark"
-                className="block text-xs font-medium text-[#B4B8C8]"
-              >
-                Target hourly rate (private)
-              </label>
-              <input
-                id="role-benchmark"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                value={targetRateInput}
-                onChange={(e) => setTargetRateInput(e.target.value)}
-                className="dsq-recessed font-victor w-full rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:outline-none focus:border-[#5661FF]"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Toggle Flags */}
-        <div className="space-y-2 pt-4 border-t border-white/[0.08]">
-          <span className="block text-xs font-medium text-[#B4B8C8]">
-            {activeRole === "developer"
-              ? "Client risk flags (updates Live Risk Meter)"
-              : "Delivery priorities (updates Feasibility Score)"}
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {flagOptions.map((flag) => {
-              const active = flags.includes(flag);
-              return (
-                <button
-                  key={flag}
-                  type="button"
-                  onClick={() => toggleFlag(flag)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all cursor-pointer ${
-                    active
-                      ? activeRole === "developer"
-                        ? "border-[#FF006D] bg-[#2B1024] text-[#FF85B8]"
-                        : "border-[#5661FF] bg-[#161B3A] text-[#A88FFF]"
-                      : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
-                  }`}
-                >
-                  {active && <Check className="w-3 h-3" />}
-                  <span>{flag}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Scope & Pricing Notes (Optional) */}
+        {/* Revision Cap */}
         <div className="space-y-2">
-          <label
-            htmlFor="deal-reason"
-            className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]"
-          >
+          <div className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]">
             <span>
               {activeRole === "developer"
-                ? "Technical scope notes (optional)"
-                : "Budget & timeline context (optional)"}
+                ? "Included revision rounds"
+                : "Expected revision rounds"}
             </span>
-            <span className="font-victor text-[11px] text-[#989898]">
-              {reason.length}/1200
+            <span className="font-victor text-white font-semibold">
+              {revisions} {revisions === 1 ? "round" : "rounds"}
             </span>
-          </label>
-          <textarea
-            id="deal-reason"
-            rows={3}
-            maxLength={1200}
-            value={reason}
-            onChange={(e) => {
-              setReason(e.target.value);
-              setActivePresetId(null);
-            }}
-            placeholder={
-              activeRole === "developer"
-                ? 'Optional: "Includes Next.js architecture, Auth, Stripe webhooks, QA, and deployment."'
-                : 'Optional: "Seed sprint budget ahead of beta launch."'
-            }
-            className="dsq-recessed w-full rounded-xl px-4 py-3 text-sm text-[#F1F1F1] placeholder:text-[#989898]/60 leading-relaxed focus:outline-none focus:border-[#5661FF] resize-y"
-          />
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {revisionOptions.map((val) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setRevisions(val)}
+                className={`font-victor rounded-lg border py-2 text-xs font-semibold transition-all cursor-pointer ${
+                  revisions === val
+                    ? "border-[#5661FF] bg-[#161B3A] text-white"
+                    : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
+                }`}
+              >
+                {val === 5 ? "5+" : val}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Collapsible Optional Parameters: Risk Flags, Target Hourly Rate & Scope Notes */}
+        <div className="pt-3 border-t border-white/[0.08]">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+            aria-expanded={advancedOpen}
+            className="w-full flex items-center justify-between gap-2 text-xs font-semibold text-[#B4B8C8] hover:text-white transition-colors cursor-pointer text-left py-1"
+          >
+            <span className="inline-flex flex-wrap items-center gap-2">
+              <span>
+                {activeRole === "developer"
+                  ? "Optional: Risk flags, target hourly rate & scope notes"
+                  : "Optional: Delivery priorities & budget notes"}
+              </span>
+              {(flags.length > 0 || reason.trim().length > 0) && (
+                <span className="rounded-full border border-[#5661FF]/45 bg-[#161B3A] px-2 py-0.5 text-[10px] font-victor text-[#C4CBFF]">
+                  {flags.length > 0
+                    ? `${flags.length} ${flags.length === 1 ? "flag" : "flags"}`
+                    : "Notes added"}
+                </span>
+              )}
+            </span>
+            <ChevronDown
+              className={`w-4 h-4 shrink-0 text-[#989898] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                advancedOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          <div
+            aria-hidden={!advancedOpen}
+            className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              advancedOpen
+                ? "grid-rows-[1fr] opacity-100"
+                : "grid-rows-[0fr] opacity-0 pointer-events-none"
+            }`}
+          >
+            <div className="overflow-hidden">
+              <div className="pt-4 space-y-4">
+                {activeRole === "developer" && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="role-benchmark"
+                      className="block text-xs font-medium text-[#B4B8C8]"
+                    >
+                      Target hourly rate (private benchmark)
+                    </label>
+                    <input
+                      id="role-benchmark"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={1}
+                      value={targetRateInput}
+                      onChange={(e) => setTargetRateInput(e.target.value)}
+                      className="dsq-recessed font-victor w-full sm:max-w-xs rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:outline-none focus:border-[#5661FF]"
+                    />
+                  </div>
+                )}
+
+                {/* Toggle Flags */}
+                <div className="space-y-2">
+                  <span className="block text-xs font-medium text-[#B4B8C8]">
+                    {activeRole === "developer"
+                      ? "Client risk flags (updates Live Risk Meter)"
+                      : "Delivery priorities (updates Feasibility Score)"}
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {flagOptions.map((flag) => {
+                      const active = flags.includes(flag);
+                      return (
+                        <button
+                          key={flag}
+                          type="button"
+                          onClick={() => toggleFlag(flag)}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all cursor-pointer ${
+                            active
+                              ? activeRole === "developer"
+                                ? "border-[#FF006D] bg-[#2B1024] text-[#FF85B8]"
+                                : "border-[#5661FF] bg-[#161B3A] text-[#A88FFF]"
+                              : "border-[#252A3A] bg-[#161923] text-[#989898] hover:border-[#3A4158] hover:text-white"
+                          }`}
+                        >
+                          {active && <Check className="w-3 h-3" />}
+                          <span>{flag}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Scope & Pricing Notes (Optional) */}
+                <div className="space-y-2">
+                  <label
+                    htmlFor="deal-reason"
+                    className="flex items-center justify-between text-xs font-medium text-[#B4B8C8]"
+                  >
+                    <span>
+                      {activeRole === "developer"
+                        ? "Technical scope notes (optional)"
+                        : "Budget & timeline context (optional)"}
+                    </span>
+                    <span className="font-victor text-[11px] text-[#989898]">
+                      {reason.length}/1200
+                    </span>
+                  </label>
+                  <textarea
+                    id="deal-reason"
+                    rows={3}
+                    maxLength={1200}
+                    value={reason}
+                    onChange={(e) => {
+                      setReason(e.target.value);
+                      setActivePresetId(null);
+                    }}
+                    placeholder={
+                      activeRole === "developer"
+                        ? 'Optional: "Includes Next.js architecture, Auth, Stripe webhooks, QA, and deployment."'
+                        : 'Optional: "Seed sprint budget ahead of beta launch."'
+                    }
+                    className="dsq-recessed w-full rounded-xl px-4 py-3 text-sm text-[#F1F1F1] placeholder:text-[#989898]/60 leading-relaxed focus:outline-none focus:border-[#5661FF] resize-y"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {error && (

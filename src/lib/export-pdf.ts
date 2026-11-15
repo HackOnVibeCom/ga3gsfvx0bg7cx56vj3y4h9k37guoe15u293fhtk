@@ -1072,11 +1072,20 @@ export async function createMediationPdf(
     doc.setFont(sans, "normal");
     doc.setFontSize(6.8);
     setRgbText(doc, COLORS.ink500);
-    doc.text(
-      "MidPoint  ·  Blind AI Deal Mediator",
-      MARGIN_X,
-      FOOTER_RULE_Y + 4.8
-    );
+    const footerBrandText = "Settled with MidPoint  ·  Mediate your next deal free";
+    if (shareUrl.startsWith("http")) {
+      let rootOrigin = shareUrl;
+      try {
+        rootOrigin = new URL(shareUrl).origin;
+      } catch {
+        // Keep fallback URL
+      }
+      doc.textWithLink(footerBrandText, MARGIN_X, FOOTER_RULE_Y + 4.8, {
+        url: rootOrigin,
+      });
+    } else {
+      doc.text(footerBrandText, MARGIN_X, FOOTER_RULE_Y + 4.8);
+    }
 
     const linkLabel =
       totalPages > 1 ? `${shareUrl}  ·  ${p}/${totalPages}` : shareUrl;
